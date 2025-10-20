@@ -1,21 +1,19 @@
-import os, requests, smtplib, ssl, json
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import os
+import json
+import requests
 from google import genai
 from pydantic import BaseModel
 from typing import List, Literal
 
-# --- Konfiguration ---
-PORTFOLIO = {"AAPL": 0.25, "MSFT": 0.2, "SPY": 0.3, "BTC": 0.1}
-KEYWORDS = ["dividend", "earnings", "profit", "guidance", "merger", "acquisition"]
+# ====== Konfiguration laden ======
+with open("config.json", "r", encoding="utf-8") as f:
+    CONFIG = json.load(f)
 
-ALPHAVANTAGE_KEY = os.getenv("ALPHAVANTAGE_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASS = os.getenv("EMAIL_PASS")
-EMAIL_TO   = os.getenv("EMAIL_TO")
+PORTFOLIO = {t.upper(): 0 for t in CONFIG["portfolio"]}
+KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
+PROMPT = CONFIG["gemini_prompt"]
 
-# --- Modelle für Gemini ---
+# ====== Modelldefinition for Gemini ======
 class ActionItem(BaseModel):
     ticker: str
     action: Literal["BUY", "SELL", "HOLD"]
@@ -25,29 +23,52 @@ class ActionItem(BaseModel):
 class ModelOutput(BaseModel):
     actions: List[ActionItem]
 
-# --- Hilfsfunktionen ---
-def is_potentially_relevant(news_item):
-    tickers = [x.get("ticker") for x in news_item.get("ticker_sentiment", [])]
-    title = news_item.get("title", "").lower()
-    return any(t in PORTFOLIO for t in tickers) or any(k in title for k in KEYWORDS)
-
-def fetch_news(limit=40):
-    url = f"https://www.alphavantage.co/query?function=NEWS_SENTIMENT&sort=LATEST&limit={limit}&apikey={ALPHAVANTAGE_KEY}"
-    r = requests.get(url, timeout=30)
+# ====== Funktionen zum Einlesen der Quellen ======
+def fetch_truthsocial_posts(profile: str, api_key: str, limit: int = 10):
+    # Beispiel-URL einer Scraper-API; du musst sie auf deine API anpassen
+    url = f"https://api.example-scraper.com/truthsocial/profile/{profile}"
+    params = {"api_key": api_key, "limit": limit}
+    r = requests.get(url, params=params, timeout=30)
     r.raise_for_status()
-    return [n for n in r.json().get("feed", []) if is_potentially_relevant(n)]
+    data = r.json()
+    # Angenommen: data["posts"] ist Liste von Beiträgen mit Feldern ["id","content","date"]
+    posts = []
+    for p in data.get("posts", []):
+        posts.append({"id": p.get("id"), "title": p.get("content"), "url": p.get("url", ""), "tickers": []})
+    return posts
 
-def analyze_with_gemini(news_list):
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    prompt = f"""
-Analysiere folgende Finanznachrichten in Bezug auf mein Portfolio: {', '.join(PORTFOLIO.keys())}.
-Empfiehl für betroffene Ticker BUY, SELL oder HOLD mit confidence (0..1) und kurzer Begründung.
-Rückgabe als JSON-Liste unter 'actions'.
-"""
-    summaries = "\n".join([f"- {n['title']} ({', '.join([x.get('ticker') for x in n.get('ticker_sentiment', []) if x.get('ticker')] or ['—'])})" for n in news_list])
+def get_all_items():
+    all_items = []
+    for src in CONFIG["sources"]:
+        if src["type"] == "truthsocial_profile":
+            api_key = os.getenv(src["api_key_env"])
+            items = fetch_truthsocial_posts(src["profile"], api_key, src.get("limit", 10))
+            all_items += items
+        # Hier weitere Quellen ergänzen, wenn nötig
+    return all_items
+
+# ====== Relevanzprüfung (Pre-Filter) ======
+def is_potentially_relevant(item: dict) -> bool:
+    title = item.get("title", "").lower()
+    # prüfe Keywords
+    if any(k in title for k in KEYWORDS):
+        return True
+    # prüfe Portfolio-Ticker im Text (ganz einfach)
+    for t in PORTFOLIO:
+        if t.lower() in title:
+            return True
+    return False
+
+# ====== Analyse mit Gemini ======
+def analyze_with_gemini(items: List[dict]) -> ModelOutput:
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    bullet_lines = []
+    for i in items:
+        bullet_lines.append(f"- {i.get('title')} (url: {i.get('url')})")
+    content = PROMPT + "\n\n" + "\n".join(bullet_lines)
     resp = client.models.generate_content(
         model="gemini-2.5-flash",
-        contents=prompt + "\n" + summaries,
+        contents=content,
         config={
             "response_mime_type": "application/json",
             "response_schema": ModelOutput,
@@ -55,28 +76,28 @@ Rückgabe als JSON-Liste unter 'actions'.
     )
     return ModelOutput.model_validate_json(resp.text)
 
-def send_email(subject, html):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = EMAIL_USER
-    msg["To"] = EMAIL_TO
-    msg.attach(MIMEText(html, "html"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ssl.create_default_context()) as server:
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.sendmail(EMAIL_USER, EMAIL_TO, msg.as_string())
+# ====== Push via Pushover ======
+def send_pushover(message: str):
+    token = os.getenv(CONFIG["pushover_token_env"])
+    user = os.getenv(CONFIG["pushover_user_env"])
+    url = "https://api.pushover.net/1/messages.json"
+    payload = {"token": token, "user": user, "message": message, "title": "Finanzbot Alert"}
+    r = requests.post(url, data=payload, timeout=20)
+    r.raise_for_status()
 
+# ====== Hauptfunktion ======
 def main():
-    news = fetch_news()
-    if not news:
+    items = get_all_items()
+    relevant = [it for it in items if is_potentially_relevant(it)]
+    if not relevant:
         return
-    result = analyze_with_gemini(news)
+    result = analyze_with_gemini(relevant)
     if not result.actions:
         return
-    html = "<h3>Finanzbot – Neue Signale</h3><ul>"
+    msg_lines = []
     for a in result.actions:
-        html += f"<li><b>{a.ticker}</b>: {a.action} ({a.confidence:.0%}) – {a.rationale}</li>"
-    html += "</ul>"
-    send_email("Finanzbot: Neue Handlungssignale", html)
+        msg_lines.append(f"{a.ticker}: {a.action} ({a.confidence:.0%}) – {a.rationale}")
+    send_pushover("\n".join(msg_lines))
 
 if __name__ == "__main__":
     main()
