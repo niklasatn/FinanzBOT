@@ -1,4 +1,5 @@
 import os, json, requests
+import time
 from google import genai
 from pydantic import BaseModel
 from typing import List, Literal
@@ -27,9 +28,22 @@ def fetch_news_alphavantage(api_key: str, limit: int = 30):
         f"https://www.alphavantage.co/query?"
         f"function=NEWS_SENTIMENT&sort=LATEST&limit={limit}&apikey={api_key}"
     )
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    return r.json().get("feed", [])
+    for attempt in range(3):  # bis zu 3 Versuche
+        try:
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+            if "feed" in data:
+                return data["feed"]
+            print("⚠️ AlphaVantage liefert keine News:", data)
+        except requests.exceptions.ReadTimeout:
+            print(f"⏳ Timeout bei AlphaVantage (Versuch {attempt+1}/3)")
+            time.sleep(10)
+        except Exception as e:
+            print("⚠️ API-Fehler:", e)
+            time.sleep(5)
+    print("❌ AlphaVantage nicht erreichbar.")
+    return []
 
 # ===== FILTERLOGIK =====
 def is_relevant(item: dict) -> bool:
