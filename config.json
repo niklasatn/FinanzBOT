@@ -40,7 +40,7 @@
     "EURO GOV BOND",
     "ALV.DE"
   ],
-  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond und Allianz. Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit einer Begründung und einem Vertrauenswert (0–100 %). Formuliere die Ausgabe klar und strukturiert auf Deutsch.",
+  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond und Allianz. Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit einer Begründung und einem Vertrauenswert (0–100 %). Zusätzlich: Schlage mir 3–5 interessante Aktien vor, die aktuell ein Kaufpotenzial zeigen, aber noch nicht in meinem Portfolio sind. Formuliere alles klar, strukturiert und auf Deutsch.",
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
