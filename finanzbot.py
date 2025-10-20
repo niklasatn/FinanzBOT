@@ -101,43 +101,59 @@ def send_pushover(message: str):
 
 # ===== HAUPTLAUF =====
 def main():
+    # === 1. News abrufen ===
     api_key = os.getenv(CONFIG["sources"][0]["api_key_env"])
     news = fetch_news_alphavantage(api_key, CONFIG["sources"][0]["limit"])
     relevant = [n for n in news if is_relevant(n)]
 
     print(f"🔎 Relevante News gefunden: {len(relevant)}")
     if not relevant:
+        print("Keine relevanten News, kein Push gesendet.")
         return
 
+    # === 2. Gemini-Analyse ===
     result = analyze_with_gemini(relevant)
     if not result.analysen:
         print("Keine relevanten Analysen erhalten.")
         return
 
-    # === Filter: nur "KAUFEN" oder "VERKAUFEN" ===
+    # === 3. Nur bei BUY oder SELL pushen ===
     interesting = [a for a in result.analysen if a.entscheidung in ("KAUFEN", "VERKAUFEN")]
     if not interesting:
         print("ℹ️ Nur HALTEN-Empfehlungen – keine Push-Nachricht gesendet.")
         return
 
-    # === Nachricht aufbauen ===
+    # === 4. Nachricht zusammenbauen ===
     message_parts = ["📊 <b>Finanzbot – Neue interessante Signale</b>\n"]
-    for a in interesting:
+
+    for a in result.analysen:
         vertr = a.vertrauen
-        if vertr > 1 and vertr > 100:
+
+        # Prozentwerte normalisieren (Gemini gibt manchmal 0–1 oder 0–10000)
+        if vertr > 100:
             vertr = vertr / 100
         if vertr <= 1:
             vertr = vertr * 100
         vertr_str = f"{vertr:.0f}%"
 
+        # Ampelsymbole je nach Entscheidung
+        if a.entscheidung == "KAUFEN":
+            symbol = "🟢"
+        elif a.entscheidung == "VERKAUFEN":
+            symbol = "🔴"
+        else:
+            symbol = "🟡"  # Halten = Gelb
+
         message_parts.append(
-            f"<b>{a.position}</b>: {a.entscheidung} ({vertr_str})\n"
-            f"🟢 {a.begruendung.strip()}\n"
+            f"{symbol} <b>{a.position}</b>: {a.entscheidung} ({vertr_str})\n"
+            f"{a.begruendung.strip()}\n"
         )
 
     final_message = "\n\n".join(message_parts)
+
+    # === 5. Push senden ===
     send_pushover(final_message)
-    print("✅ Nachricht erfolgreich gesendet (nur bei KAUFEN/VERKAUFEN).")
+    print("✅ Nachricht erfolgreich gesendet (Ampelsystem aktiv).")
 
 if __name__ == "__main__":
     main()
