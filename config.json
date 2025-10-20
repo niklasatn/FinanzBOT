@@ -34,13 +34,11 @@
     "credit"
   ],
   "portfolio": [
-    "MSCI WORLD",
-    "BTC-EUR",
+    "ALV.DE",
     "FTSE EPRA/NAREIT",
-    "EURO GOV BOND",
-    "ALV.DE"
+    "BTC-EUR"
   ],
-  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond und Allianz. Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit einer Begründung und einem Vertrauenswert (0–100 %). Zusätzlich: Schlage mir 3–5 interessante Aktien vor, die aktuell ein Kaufpotenzial zeigen, aber noch nicht in meinem Portfolio sind. Formuliere alles klar, strukturiert und auf Deutsch.",
+  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: Allianz (ALV.DE), FTSE EPRA/NAREIT und Bitcoin (BTC-EUR). Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit Begründung und Vertrauenswert (0–100 %). Ergänze zusätzlich 5 interessante Aktien, Kryptos oder ETFs mit aktuellem Kaufpotenzial, die noch nicht in meinem Portfolio sind. Formuliere alles klar, übersichtlich und auf Deutsch.",
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
