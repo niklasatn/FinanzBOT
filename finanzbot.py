@@ -134,8 +134,6 @@ def main():
         )
 
     # === 3. Nachricht zusammenbauen ===
-    message_parts = ["📊 <b>Finanzbot – Portfolio-Update</b>\n"]
-
     for a in result.analysen:
         vertr = a.vertrauen
         if vertr > 100:
