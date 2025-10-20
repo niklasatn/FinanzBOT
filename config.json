@@ -12,16 +12,26 @@
     "earnings",
     "profit",
     "guidance",
+    "forecast",
+    "outlook",
     "merger",
     "acquisition",
     "lawsuit",
     "rating",
     "upgrade",
-    "eurozone",
+    "downgrade",
+    "recession",
+    "growth",
     "inflation",
     "interest rates",
     "ECB",
-    "bond yield"
+    "bond yield",
+    "yield curve",
+    "GDP",
+    "deficit",
+    "energy",
+    "real estate",
+    "credit"
   ],
   "portfolio": [
     "MSCI WORLD",
@@ -30,7 +40,7 @@
     "EURO GOV BOND",
     "ALV.DE"
   ],
-  "gemini_prompt": "Analysiere folgende Finanznachrichten bezogen auf mein Portfolio (MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond, Allianz). Gib für betroffene Positionen BUY, SELL oder HOLD mit Confidence (0..1) und kurzer Begründung aus. Bewerte alle Werte in EUR.",
+  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond und Allianz. Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit einer Begründung und einem Vertrauenswert (0–100 %). Formuliere die Ausgabe klar und strukturiert auf Deutsch.",
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
