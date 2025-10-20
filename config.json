@@ -16,10 +16,21 @@
     "acquisition",
     "lawsuit",
     "rating",
-    "upgrade"
+    "upgrade",
+    "eurozone",
+    "inflation",
+    "interest rates",
+    "ECB",
+    "bond yield"
   ],
-  "portfolio": ["AAPL", "MSFT", "SPY", "BTC"],
-  "gemini_prompt": "Analysiere folgende Finanznachrichten bezogen auf mein Portfolio. Gib für betroffene Ticker BUY, SELL oder HOLD mit Confidence (0..1) und kurzer Begründung aus.",
+  "portfolio": [
+    "MSCI WORLD",
+    "BTC-EUR",
+    "FTSE EPRA/NAREIT",
+    "EURO GOV BOND",
+    "ALV.DE"
+  ],
+  "gemini_prompt": "Analysiere folgende Finanznachrichten bezogen auf mein Portfolio (MSCI World, Bitcoin in EUR, FTSE EPRA/NAREIT, Core Euro Government Bond, Allianz). Gib für betroffene Positionen BUY, SELL oder HOLD mit Confidence (0..1) und kurzer Begründung aus. Bewerte alle Werte in EUR.",
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
