@@ -2,7 +2,7 @@ name: Finanzbot
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # alle 10 Minuten
+    - cron: "*/15 * * * *"   # alle 15 Minuten
   workflow_dispatch:
 
 jobs:
