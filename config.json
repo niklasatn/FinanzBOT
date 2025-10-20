@@ -1,0 +1,15 @@
+{
+  "sources": [
+    {
+      "name": "AlphaVantage",
+      "type": "alphavantage",
+      "api_key_env": "ALPHAVANTAGE_KEY",
+      "limit": 40
+    }
+  ],
+  "keywords": ["dividend", "earnings", "profit", "guidance", "merger", "upgrade", "lawsuit"],
+  "portfolio": ["AAPL", "MSFT", "SPY", "BTC"],
+  "gemini_prompt": "Analysiere folgende Finanznachrichten bezogen auf mein Portfolio. Gib für betroffene Ticker BUY, SELL oder HOLD mit Confidence (0..1) und kurzer Begründung aus.",
+  "pushover_user_env": "PUSHOVER_USER",
+  "pushover_token_env": "PUSHOVER_TOKEN"
+}
