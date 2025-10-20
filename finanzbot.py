@@ -114,16 +114,21 @@ def main():
         print("Keine relevanten Analysen erhalten.")
         return
 
-    # ==== Formatierte Ausgabe ====
-    message_parts = ["📊 <b>Finanzbot – Analyse</b>\n"]
-    for a in result.analysen:
-        vertrauen = a.vertrauen
-        # Falls Gemini z. B. 6000 liefert → auf 60.00 normieren
-        if vertrauen > 1 and vertrauen > 100:
-            vertrauen = vertrauen / 100
-        if vertrauen <= 1:
-            vertrauen = vertrauen * 100
-        vertr_str = f"{vertrauen:.0f}%"
+    # === Filter: nur "KAUFEN" oder "VERKAUFEN" ===
+    interesting = [a for a in result.analysen if a.entscheidung in ("KAUFEN", "VERKAUFEN")]
+    if not interesting:
+        print("ℹ️ Nur HALTEN-Empfehlungen – keine Push-Nachricht gesendet.")
+        return
+
+    # === Nachricht aufbauen ===
+    message_parts = ["📊 <b>Finanzbot – Neue interessante Signale</b>\n"]
+    for a in interesting:
+        vertr = a.vertrauen
+        if vertr > 1 and vertr > 100:
+            vertr = vertr / 100
+        if vertr <= 1:
+            vertr = vertr * 100
+        vertr_str = f"{vertr:.0f}%"
 
         message_parts.append(
             f"<b>{a.position}</b>: {a.entscheidung} ({vertr_str})\n"
@@ -132,7 +137,7 @@ def main():
 
     final_message = "\n\n".join(message_parts)
     send_pushover(final_message)
-    print("✅ Nachricht erfolgreich gesendet.")
+    print("✅ Nachricht erfolgreich gesendet (nur bei KAUFEN/VERKAUFEN).")
 
 if __name__ == "__main__":
     main()
