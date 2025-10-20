@@ -46,9 +46,11 @@ def is_relevant(item: dict) -> bool:
     if any(k in combined for k in KEYWORDS):
         return True
     # Branchen / Makro
-    if any(term in combined for term in ["markets","bond","etf","crypto","real estate","bank","insurance","government debt","funds"]):
+    if any(term in combined for term in [
+        "markets", "bond", "etf", "crypto", "real estate", "bank", "insurance", "government debt", "funds"
+    ]):
         return True
-    if any(term in combined for term in ["europe","germany","eu","eurozone","ecb","eur"]):
+    if any(term in combined for term in ["europe", "germany", "eu", "eurozone", "ecb", "eur"]):
         return True
     return False
 
@@ -117,26 +119,31 @@ def main():
         print("Keine relevanten Analysen erhalten.")
         return
 
-    # === 3. Nur bei BUY oder SELL pushen ===
-    interesting = [a for a in result.analysen if a.entscheidung in ("KAUFEN", "VERKAUFEN")]
-    if not interesting:
-        print("ℹ️ Nur HALTEN-Empfehlungen – keine Push-Nachricht gesendet.")
-        return
+    # === 2b. Fehlende Positionen markieren ===
+    analysierte_pos = {a.position.upper() for a in result.analysen}
+    fehlende_pos = [p for p in PORTFOLIO if p not in analysierte_pos]
 
-    # === 4. Nachricht zusammenbauen ===
-    message_parts = ["📊 <b>Finanzbot – Neue interessante Signale</b>\n"]
+    for pos in fehlende_pos:
+        result.analysen.append(
+            ActionItem(
+                position=pos,
+                entscheidung="HALTEN",
+                vertrauen=0,
+                begruendung="Keine aktuellen Nachrichten oder Signale verfügbar."
+            )
+        )
+
+    # === 3. Nachricht zusammenbauen ===
+    message_parts = ["📊 <b>Finanzbot – Portfolio-Update</b>\n"]
 
     for a in result.analysen:
         vertr = a.vertrauen
-
-        # Prozentwerte normalisieren (Gemini gibt manchmal 0–1 oder 0–10000)
         if vertr > 100:
             vertr = vertr / 100
         if vertr <= 1:
             vertr = vertr * 100
         vertr_str = f"{vertr:.0f}%"
 
-        # Ampelsymbole je nach Entscheidung
         if a.entscheidung == "KAUFEN":
             symbol = "🟢"
         elif a.entscheidung == "VERKAUFEN":
@@ -151,9 +158,9 @@ def main():
 
     final_message = "\n\n".join(message_parts)
 
-    # === 5. Push senden ===
+    # === 4. Push senden ===
     send_pushover(final_message)
-    print("✅ Nachricht erfolgreich gesendet (Ampelsystem aktiv).")
+    print("✅ Nachricht erfolgreich gesendet (inkl. Hinweis auf fehlende News).")
 
 if __name__ == "__main__":
     main()
