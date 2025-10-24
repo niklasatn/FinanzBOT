@@ -163,22 +163,24 @@ def send_pushover(message: str):
 def main():
     api_key = os.getenv(CONFIG["sources"][0]["api_key_env"])
     news = fetch_news_alphavantage(api_key, CONFIG["sources"][0]["limit"])
-    relevant = [n for n in news if is_relevant(n)]
-    print(f"🔎 Relevante News gefunden: {len(relevant)}")
 
-    if not relevant:
-        print("Keine relevanten News, kein Push.")
+    # Nur aktuelle + relevante News
+    filtered = [n for n in news if is_recent(n) and is_relevant(n)]
+    print(f"🔎 Relevante aktuelle News gefunden: {len(filtered)}")
+
+    if not filtered:
+        print("Keine neuen, aktuellen News – kein Push.")
         return
 
-    # nur neue Nachrichten (gegen gespeicherte URLs prüfen)
-    current_ids = {n["url"] for n in relevant}
+    # Nur neue Nachrichten (gegen gespeicherte URLs prüfen)
+    current_ids = {n["url"] for n in filtered}
     last_ids = load_last_ids()
     new_ids = current_ids - last_ids
     if not new_ids:
         print("Keine neuen relevanten News – kein Push.")
         return
 
-    new_news = [n for n in relevant if n["url"] in new_ids]
+    new_news = [n for n in filtered if n["url"] in new_ids]
     result = analyze_with_gemini(new_news)
     if not result.ideen:
         print("Keine neuen Anlageideen erkannt.")
@@ -189,14 +191,38 @@ def main():
     parts = []
     for i in result.ideen:
         v = i.vertrauen
-        if v > 100: v /= 100
-        if v <= 1: v *= 100
-        parts.append(f"🟢 {i.name} ({i.typ}) <b>{v:.0f}%</b> – {i.begruendung.strip()}")
+        if v > 100:
+            v /= 100
+        if v <= 1:
+            v *= 100
 
-    msg = "\n".join(parts)
-    send_pushover(msg)
+        # Prozent fett, Erklärung in neuer Zeile
+        parts.append(f"🟢 {i.name} ({i.typ}) – <b>{v:.0f}%</b>\n{i.begruendung.strip()}")
+
+    msg = "\n\n".join(parts)
+
+    # Auf 1024 Zeichen begrenzen (Pushover-Limit)
+    if len(msg) > 1024:
+        print(f"⚠️ Nachricht zu lang ({len(msg)} Zeichen) – auf 1024 gekürzt.")
+        msg = msg[:1024]
+
+    # Eine einzige Nachricht senden
+    payload = {
+        "token": PUSHOVER_TOKEN,
+        "user": PUSHOVER_USER,
+        "message": msg,
+        "html": 1  # HTML aktiviert, damit <b>...</b> fett dargestellt wird
+    }
+
+    try:
+        r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=15)
+        r.raise_for_status()
+        print(f"✅ Pushover gesendet ({len(msg)} Zeichen).")
+    except Exception as e:
+        print("⚠️ Fehler beim Senden an Pushover:", e)
+
     save_last_ids(current_ids)
-    print("✅ Neue Anlageideen gesendet.")
+    print("✅ Neue Anlageideen gesendet und IDs gespeichert.")
 
 
 if __name__ == "__main__":
