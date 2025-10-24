@@ -33,7 +33,10 @@
     "real estate",
     "credit"
   ],
-  "gemini_prompt": "Analysiere die folgenden Finanznachrichten und gib für 5 interessante Aktien, Kryptos oder ETFs mit hohem Kaufpotenzial eine Einschätzung mit kurzer Begründung und Vertrauenswert: (0–100 %). Formuliere alles klar, übersichtlich und auf Deutsch.",
+  "prompts": {
+    "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor (Aktien, ETFs, Kryptos, Fonds usw.), die aktuell Potenzial haben könnten.",
+    "format": "Gib die Antwort als JSON-Liste 'ideen' mit Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (kurz, deutsch), vertrauen (0–100). Antworte ausschließlich im JSON-Format und auf Deutsch."
+  },
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
