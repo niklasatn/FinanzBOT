@@ -1,5 +1,4 @@
-import os, json, requests
-from google import genai
+import os, json, requests, importlib
 from pydantic import BaseModel
 from typing import List
 
@@ -8,7 +7,7 @@ with open("config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
 KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
-PROMPT = CONFIG["gemini_prompt"]
+PROMPTS = CONFIG["prompts"]  # jetzt mit main + format
 
 # ===== MODELDEFINITION =====
 class IdeaItem(BaseModel):
@@ -41,37 +40,64 @@ def is_relevant(item: dict) -> bool:
 
 # ===== GEMINI ANALYSE =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    bullets = []
-    for n in news_items:
-        title = n.get("title", "")
-        url = n.get("url", "")
-        tickers = ", ".join(
-            [x.get("ticker") for x in n.get("ticker_sentiment", []) if x.get("ticker")]
+    if importlib.util.find_spec("google.genai"):
+        from google import genai
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+        bullets = []
+        for n in news_items:
+            title = n.get("title", "")
+            url = n.get("url", "")
+            tickers = ", ".join(
+                [x.get("ticker") for x in n.get("ticker_sentiment", []) if x.get("ticker")]
+            )
+            bullets.append(f"- {title} ({tickers or '—'})\n  Quelle: {url}")
+
+        full_prompt = (
+            PROMPTS["main"]
+            + "\n\n"
+            + PROMPTS["format"]
+            + "\n\n"
+            + "\n".join(bullets)
         )
-        bullets.append(f"- {title} ({tickers or '—'})\n  Quelle: {url}")
 
-    full_prompt = (
-        PROMPT
-        + "\n\nLies die News und schlage bis zu 5 neue, interessante Finanzprodukte vor "
-          "(Aktien, ETFs, Kryptos, Fonds usw.), die aktuell Potenzial haben könnten. "
-          "Gib die Antwort als JSON-Liste 'ideen' mit Feldern: "
-          "name (string), typ (z. B. Aktie/ETF/Krypto/Fonds), begruendung (kurz, deutsch), "
-          "vertrauen (0–100, Zahl ohne %). Antworte nur im JSON-Format.\n\n"
-        + "\n".join(bullets)
-    )
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=full_prompt,
+            config={"response_mime_type": "application/json"},
+        )
+        raw = resp.text
 
-    resp = client.generate_content(
-        model="gemini-2.5-flash",
-        contents=full_prompt,
-        response_mime_type="application/json"
-    )
+    else:
+        import google.generativeai as genai
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+        bullets = []
+        for n in news_items:
+            title = n.get("title", "")
+            url = n.get("url", "")
+            tickers = ", ".join(
+                [x.get("ticker") for x in n.get("ticker_sentiment", []) if x.get("ticker")]
+            )
+            bullets.append(f"- {title} ({tickers or '—'})\n  Quelle: {url}")
+
+        full_prompt = (
+            PROMPTS["main"]
+            + "\n\n"
+            + PROMPTS["format"]
+            + "\n\n"
+            + "\n".join(bullets)
+        )
+
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resp = model.generate_content(full_prompt)
+        raw = resp.text
 
     try:
-        return IdeaOutput.model_validate_json(resp.candidates[0].content.parts[0].text)
+        return IdeaOutput.model_validate_json(raw)
     except Exception as e:
         print("⚠️ Fehler beim Parsen der Gemini-Antwort:", e)
-        print("Antwort:", resp.candidates[0].content.parts[0].text)
+        print("Antwort:", raw)
         return IdeaOutput(ideen=[])
 
 # ===== PUSHOVER =====
@@ -101,7 +127,6 @@ def main():
         print("Keine neuen Anlageideen erkannt.")
         return
 
-    # Nachricht komprimiert aufbauen
     parts = []
     for i in result.ideen:
         v = i.vertrauen
