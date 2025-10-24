@@ -27,8 +27,8 @@
   ],
   "prompts": {
     "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor, die bei Trade Republic handelbar sind. Gib den genauen Namen bei Trade Republic an (z. B. 'iShares MSCI World UCITS ETF (WKN: A0RPWH)').",
-    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen', Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2–3 Sätze, deutsch), vertrauen (0–100, Zahl ohne %). Gib keine anderen Texte aus. Die gesamte Antwort darf maximal 950 Zeichen umfassen. Hebe die Prozentwerte mit HTML-Fettschrift hervor, z. B. <b>78 %</b>."
-  },
+    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen', Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2–3 Sätze, deutsch), vertrauen (0–100, Zahl ohne %). Gib keine anderen Texte aus. Die gesamte Antwort darf maximal 950 Zeichen umfassen. Hebe die Prozentwerte mit HTML-Fettschrift hervor, z. B. <b>78 %</b>. Schreibe den Vertrauenswert NICHT erneut in der Begründung oder im Text – nur einmal im Feld 'vertrauen'."
+  }
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
