@@ -8,13 +8,26 @@
     }
   ],
   "keywords": [
-    "dividend", "earnings", "profit", "forecast", "outlook",
-    "merger", "acquisition", "upgrade", "downgrade", "growth",
-    "inflation", "interest rates", "ECB", "bond yield", "energy", "real estate"
+    "dividend",
+    "earnings",
+    "profit",
+    "forecast",
+    "outlook",
+    "merger",
+    "acquisition",
+    "upgrade",
+    "downgrade",
+    "growth",
+    "inflation",
+    "interest rates",
+    "ECB",
+    "bond yield",
+    "energy",
+    "real estate"
   ],
   "prompts": {
-    "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor, die bei Trade Republic handelbar sind. Gib den exakten Namen an, wie sie in Trade Republic heißen (z. B. 'iShares MSCI World UCITS ETF (WKN: A0RPWH)').",
-    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen', Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2–3 Sätze, deutsch), vertrauen (0–100, Zahl ohne %). Gib keine anderen Texte aus. **Die gesamte Antwort darf maximal 1024 Zeichen umfassen.** Hebe die Prozentwerte mit HTML-Fettschrift hervor, z. B. <b>78 %</b>."
+    "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor, die bei Trade Republic handelbar sind. Gib den genauen Namen bei Trade Republic an (z. B. 'iShares MSCI World UCITS ETF (WKN: A0RPWH)').",
+    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen', Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2–3 Sätze, deutsch), vertrauen (0–100, Zahl ohne %). Gib keine anderen Texte aus. Die gesamte Antwort darf maximal 950 Zeichen umfassen. Hebe die Prozentwerte mit HTML-Fettschrift hervor, z. B. <b>78 %</b>."
   },
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
