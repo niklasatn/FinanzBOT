@@ -1,25 +1,24 @@
 import os, json, requests
 from google import genai
 from pydantic import BaseModel
-from typing import List, Literal
+from typing import List
 
 # ===== KONFIGURATION LADEN =====
 with open("config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
-PORTFOLIO = {t.upper(): 0 for t in CONFIG["portfolio"]}
 KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPT = CONFIG["gemini_prompt"]
 
 # ===== MODELDEFINITION =====
-class ActionItem(BaseModel):
-    position: str
-    entscheidung: Literal["KAUFEN", "HALTEN", "VERKAUFEN"]
-    vertrauen: float
+class IdeaItem(BaseModel):
+    name: str
+    typ: str
     begruendung: str
+    vertrauen: float
 
-class ModelOutput(BaseModel):
-    analysen: List[ActionItem]
+class IdeaOutput(BaseModel):
+    ideen: List[IdeaItem]
 
 # ===== NEWS AUS ALPHAVANTAGE =====
 def fetch_news_alphavantage(api_key: str, limit: int = 30):
@@ -27,30 +26,21 @@ def fetch_news_alphavantage(api_key: str, limit: int = 30):
         f"https://www.alphavantage.co/query?"
         f"function=NEWS_SENTIMENT&sort=LATEST&limit={limit}&apikey={api_key}"
     )
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    return r.json().get("feed", [])
+    try:
+        r = requests.get(url, timeout=25)
+        r.raise_for_status()
+        return r.json().get("feed", [])
+    except Exception as e:
+        print("⚠️ Fehler beim Abrufen der News:", e)
+        return []
 
 # ===== FILTERLOGIK =====
 def is_relevant(item: dict) -> bool:
-    title = item.get("title", "").lower()
-    summary = item.get("summary", "").lower()
-    combined = title + " " + summary
-    tickers = [x.get("ticker", "").upper() for x in item.get("ticker_sentiment", [])]
-    if any(t in PORTFOLIO for t in tickers):
-        return True
-    if any(k in combined for k in KEYWORDS):
-        return True
-    if any(term in combined for term in [
-        "markets", "bond", "etf", "crypto", "real estate", "bank", "insurance", "government debt", "funds"
-    ]):
-        return True
-    if any(term in combined for term in ["europe", "germany", "eu", "eurozone", "ecb", "eur"]):
-        return True
-    return False
+    text = (item.get("title", "") + " " + item.get("summary", "")).lower()
+    return any(k in text for k in KEYWORDS)
 
 # ===== GEMINI ANALYSE =====
-def analyze_with_gemini(news_items: List[dict]) -> ModelOutput:
+def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     bullets = []
     for n in news_items:
@@ -60,77 +50,68 @@ def analyze_with_gemini(news_items: List[dict]) -> ModelOutput:
             [x.get("ticker") for x in n.get("ticker_sentiment", []) if x.get("ticker")]
         )
         bullets.append(f"- {title} ({tickers or '—'})\n  Quelle: {url}")
+
     full_prompt = (
         PROMPT
-        + "\n\nBitte gib die Antwort als JSON-Liste 'analysen' zurück, "
-          "mit Feldern: position (string), entscheidung (KAUFEN/HALTEN/VERKAUFEN), "
-          "vertrauen (0–100, Zahl ohne Prozentzeichen), begruendung (string, kurz und prägnant). "
-          "Antworte ausschließlich in Deutsch.\n\n"
+        + "\n\nLies die News und schlage bis zu 5 neue, interessante Finanzprodukte vor "
+          "(Aktien, ETFs, Kryptos, Fonds usw.), die aktuell Potenzial haben könnten. "
+          "Gib die Antwort als JSON-Liste 'ideen' mit Feldern: "
+          "name (string), typ (z. B. Aktie/ETF/Krypto/Fonds), begruendung (kurz, deutsch), "
+          "vertrauen (0–100, Zahl ohne %). Antworte nur im JSON-Format.\n\n"
         + "\n".join(bullets)
     )
-    resp = client.models.generate_content(
+
+    resp = client.generate_content(
         model="gemini-2.5-flash",
         contents=full_prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": ModelOutput,
-        },
+        response_mime_type="application/json"
     )
-    return ModelOutput.model_validate_json(resp.text)
+
+    try:
+        return IdeaOutput.model_validate_json(resp.candidates[0].content.parts[0].text)
+    except Exception as e:
+        print("⚠️ Fehler beim Parsen der Gemini-Antwort:", e)
+        print("Antwort:", resp.candidates[0].content.parts[0].text)
+        return IdeaOutput(ideen=[])
 
 # ===== PUSHOVER =====
 def send_pushover(message: str):
     token = os.getenv(CONFIG["pushover_token_env"])
     user = os.getenv(CONFIG["pushover_user_env"])
     payload = {"token": token, "user": user, "message": message}
-    r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=20)
-    r.raise_for_status()
+    try:
+        r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        print("⚠️ Fehler beim Senden an Pushover:", e)
 
 # ===== MAIN =====
 def main():
     api_key = os.getenv(CONFIG["sources"][0]["api_key_env"])
     news = fetch_news_alphavantage(api_key, CONFIG["sources"][0]["limit"])
     relevant = [n for n in news if is_relevant(n)]
-
     print(f"🔎 Relevante News: {len(relevant)}")
+
     if not relevant:
         print("Keine relevanten News, kein Push.")
         return
 
     result = analyze_with_gemini(relevant)
-    if not result.analysen:
-        print("Keine relevanten Analysen.")
+    if not result.ideen:
+        print("Keine neuen Anlageideen erkannt.")
         return
 
-    analysierte_pos = {a.position.upper() for a in result.analysen}
-    fehlende_pos = [p for p in PORTFOLIO if p not in analysierte_pos]
-    for pos in fehlende_pos:
-        result.analysen.append(
-            ActionItem(
-                position=pos,
-                entscheidung="HALTEN",
-                vertrauen=0,
-                begruendung="Keine neuen Nachrichten."
-            )
-        )
-
+    # Nachricht komprimiert aufbauen
     parts = []
-    for a in result.analysen:
-        v = a.vertrauen
+    for i in result.ideen:
+        v = i.vertrauen
         if v > 100: v /= 100
         if v <= 1: v *= 100
-        v = f"{v:.0f}%"
-        if a.entscheidung == "KAUFEN":
-            s = "🟢"
-        elif a.entscheidung == "VERKAUFEN":
-            s = "🔴"
-        else:
-            s = "🟡"
-        parts.append(f"{s} {a.position}: {a.entscheidung} ({v}) - {a.begruendung.strip()}")
+        parts.append(f"🟢 {i.name} ({i.typ}) {v:.0f}% - {i.begruendung.strip()}")
 
     msg = "\n".join(parts)
     send_pushover(msg)
-    print("✅ Push gesendet.")
+    print("✅ Neue Anlageideen gesendet.")
 
 if __name__ == "__main__":
     main()
