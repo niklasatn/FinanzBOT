@@ -33,12 +33,7 @@
     "real estate",
     "credit"
   ],
-  "portfolio": [
-    "ALV.DE",
-    "FTSE EPRA/NAREIT",
-    "BTC-EUR"
-  ],
-  "gemini_prompt": "Analysiere die folgenden Finanznachrichten auf Relevanz für mein Portfolio: Allianz (ALV.DE), FTSE EPRA/NAREIT und Bitcoin (BTC-EUR). Gib für jede relevante Position eine Einschätzung (Kaufen, Halten, Verkaufen) mit Begründung und Vertrauenswert (0–100 %). Ergänze zusätzlich 3 interessante Aktien, Kryptos oder ETFs mit hohem Kaufpotenzial, die noch nicht in meinem Portfolio sind. Formuliere alles klar, übersichtlich und auf Deutsch.",
+  "gemini_prompt": "Analysiere die folgenden Finanznachrichten und gib für 5 interessante Aktien, Kryptos oder ETFs mit hohem Kaufpotenzial eine Einschätzung mit kurzer Begründung und Vertrauenswert: (0–100 %). Formuliere alles klar, übersichtlich und auf Deutsch.",
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
 }
