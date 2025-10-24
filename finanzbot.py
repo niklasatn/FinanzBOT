@@ -140,21 +140,23 @@ def send_pushover(message: str):
     if not PUSHOVER_TOKEN or not PUSHOVER_USER:
         print("⚠️ Pushover-Umgebungsvariablen fehlen.")
         return
-    # falls Nachricht zu lang ist → splitten
-    chunks = [message[i:i + CHAR_LIMIT] for i in range(0, len(message), CHAR_LIMIT)]
-    for chunk in chunks:
-        payload = {
-            "token": PUSHOVER_TOKEN,
-            "user": PUSHOVER_USER,
-            "message": chunk,
-            "html": 1  # HTML aktiv für fette Prozentzahlen
-        }
-        try:
-            r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=15)
-            r.raise_for_status()
-            time.sleep(1)
-        except Exception as e:
-            print("⚠️ Fehler beim Senden an Pushover:", e)
+
+    # auf 1024 Zeichen begrenzen (hartes Limit von Pushover)
+    trimmed = message[:1024]
+
+    payload = {
+        "token": PUSHOVER_TOKEN,
+        "user": PUSHOVER_USER,
+        "message": trimmed,
+        "html": 1  # HTML aktiv für <b>78 %</b>
+    }
+
+    try:
+        r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=15)
+        r.raise_for_status()
+        print(f"✅ Pushover gesendet ({len(trimmed)} Zeichen).")
+    except Exception as e:
+        print("⚠️ Fehler beim Senden an Pushover:", e)
 
 
 # ===== MAIN =====
