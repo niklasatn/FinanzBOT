@@ -34,8 +34,8 @@
     "credit"
   ],
   "prompts": {
-    "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor, die bei Trade Republic handelbar sind. Gib den Namen bei TR (z. B. Ticker/Name) an, Typ (Aktie/ETF/Krypto/Fonds) sowie eine etwas ausführlichere Begründung.",
-    "format": "Antworte als JSON-Liste 'ideen' mit Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2-3 Sätze, deutsch), vertrauen (0-100, Zahl ohne %)."
+    "main": "Analysiere die folgenden Finanznachrichten und schlage bis zu 5 neue, interessante Finanzprodukte vor, die bei Trade Republic handelbar sind. Gib den Namen bei TR (z. B. Ticker/Name) an, den Typ (Aktie/ETF/Krypto/Fonds) und eine etwas ausführlichere Begründung (2–3 Sätze).",
+    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen', Feldern: name (string), typ (Aktie/ETF/Krypto/Fonds), begruendung (2–3 Sätze, deutsch), vertrauen (0–100, Zahl ohne %). Gib keine sonstigen Texte aus. **Die gesamte Antwort darf maximal 1024 Zeichen umfassen.** Hebe die Vertrauenswert-Prozente mit Markdown-Fettschrift hervor (z. B. **78 %**)."
   },
   "pushover_user_env": "PUSHOVER_USER",
   "pushover_token_env": "PUSHOVER_TOKEN"
