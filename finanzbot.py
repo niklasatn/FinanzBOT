@@ -1,8 +1,7 @@
 import os, json, requests, importlib, time
-
+from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 from typing import List
-
 
 # ===== KONFIGURATION LADEN =====
 with open("config.json", "r", encoding="utf-8") as f:
@@ -13,7 +12,8 @@ PROMPTS = CONFIG["prompts"]
 PUSHOVER_TOKEN = os.getenv(CONFIG["pushover_token_env"])
 PUSHOVER_USER = os.getenv(CONFIG["pushover_user_env"])
 STATE_FILE = "last_sent.json"
-CHAR_LIMIT = 950  # Sicherheitslimit für Pushover
+CHAR_LIMIT = 1024  # Pushover-Hardlimit
+MAX_NEWS_AGE_HOURS = 6  # Nur News der letzten 6 Stunden prüfen
 
 
 # ===== MODELDEFINITION =====
@@ -56,12 +56,25 @@ def fetch_news_alphavantage(api_key: str, limit: int = 30):
         return []
 
 
+# ===== ZEITFILTER =====
+def is_recent(item: dict) -> bool:
+    ts = item.get("time_published")
+    if not ts:
+        return False
+    try:
+        published = datetime.strptime(ts, "%Y%m%dT%H%M%S")
+        published = published.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return (now - published) <= timedelta(hours=MAX_NEWS_AGE_HOURS)
+    except Exception:
+        return False
+
+
 # ===== RELEVANZFILTER =====
 def is_relevant(item: dict) -> bool:
     title = (item.get("title", "") + " " + item.get("summary", "")).lower()
     sentiment = float(item.get("overall_sentiment_score", 0))
     relevance = float(item.get("relevance_score", 0))
-    # nur News mit deutlicher Auswirkung
     return (
         abs(sentiment) > 0.35
         or relevance > 0.5
@@ -71,7 +84,6 @@ def is_relevant(item: dict) -> bool:
 
 # ===== GEMINI ANALYSE =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    # dynamische Unterstützung beider Gemini-SDKs
     raw = ""
     try:
         if importlib.util.find_spec("google.genai"):
@@ -135,30 +147,6 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
         return IdeaOutput(ideen=[])
 
 
-# ===== PUSHOVER =====
-def send_pushover(message: str):
-    if not PUSHOVER_TOKEN or not PUSHOVER_USER:
-        print("⚠️ Pushover-Umgebungsvariablen fehlen.")
-        return
-
-    # auf 1024 Zeichen begrenzen (hartes Limit von Pushover)
-    trimmed = message[:1024]
-
-    payload = {
-        "token": PUSHOVER_TOKEN,
-        "user": PUSHOVER_USER,
-        "message": trimmed,
-        "html": 1  # HTML aktiv für <b>78 %</b>
-    }
-
-    try:
-        r = requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=15)
-        r.raise_for_status()
-        print(f"✅ Pushover gesendet ({len(trimmed)} Zeichen).")
-    except Exception as e:
-        print("⚠️ Fehler beim Senden an Pushover:", e)
-
-
 # ===== MAIN =====
 def main():
     api_key = os.getenv(CONFIG["sources"][0]["api_key_env"])
@@ -187,7 +175,7 @@ def main():
         save_last_ids(current_ids)
         return
 
-    # Nachricht zusammenbauen
+    # Nachricht zusammenbauen (Prozent nach Name, Erklärung darunter)
     parts = []
     for i in result.ideen:
         v = i.vertrauen
@@ -195,23 +183,21 @@ def main():
             v /= 100
         if v <= 1:
             v *= 100
-
-        # Prozent fett, Erklärung in neuer Zeile
         parts.append(f"🟢 {i.name} ({i.typ}) – <b>{v:.0f}%</b>\n{i.begruendung.strip()}")
 
     msg = "\n\n".join(parts)
 
     # Auf 1024 Zeichen begrenzen (Pushover-Limit)
-    if len(msg) > 1024:
-        print(f"⚠️ Nachricht zu lang ({len(msg)} Zeichen) – auf 1024 gekürzt.")
-        msg = msg[:1024]
+    if len(msg) > CHAR_LIMIT:
+        print(f"⚠️ Nachricht zu lang ({len(msg)} Zeichen) – auf {CHAR_LIMIT} gekürzt.")
+        msg = msg[:CHAR_LIMIT]
 
     # Eine einzige Nachricht senden
     payload = {
         "token": PUSHOVER_TOKEN,
         "user": PUSHOVER_USER,
         "message": msg,
-        "html": 1  # HTML aktiviert, damit <b>...</b> fett dargestellt wird
+        "html": 1
     }
 
     try:
