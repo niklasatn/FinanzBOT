@@ -1,10 +1,18 @@
 {
   "sources": [
     {
-      "name": "AlphaVantage",
-      "type": "alphavantage",
-      "api_key_env": "ALPHAVANTAGE_KEY",
-      "limit": 40
+      "name": "Google News (CSE)",
+      "type": "google_cse",
+      "api_key_env": "GOOGLE_CSE_KEY",
+      "cx_env": "GOOGLE_CSE_CX",
+      "limit": 40,
+      "queries": [
+        "site:news.google.com finance",
+        "site:news.google.com markets",
+        "site:news.google.com ECB OR Fed OR interest rates OR inflation",
+        "site:news.google.com earnings OR profit OR guidance OR downgrade OR upgrade",
+        "site:news.google.com bond yields OR oil OR energy OR real estate"
+      ]
     }
   ],
   "keywords": [
