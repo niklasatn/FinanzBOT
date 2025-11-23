@@ -47,6 +47,7 @@ def save_last_ids(ids):
 
 # ===== UTILS =====
 def clean_html(raw_html: str) -> str:
+    """Entfernt HTML-Tags aus RSS-Beschreibungen."""
     cleanr = re.compile('<.*?>')
     cleantext = re.sub(cleanr, '', raw_html)
     return cleantext.strip()
@@ -64,11 +65,13 @@ def fetch_news_rss(url: str, limit: int = 30) -> List[Dict[str, Any]]:
         summary = clean_html(summary)
         
         published_dt = None
+        # Zeitstempel sicher parsen
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
         elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
             published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), timezone.utc)
         
+        # Fallback auf aktuelle Zeit
         if not published_dt:
             published_dt = datetime.now(timezone.utc)
 
@@ -91,57 +94,67 @@ def is_recent(item: dict) -> bool:
 def relevance_score(item: dict) -> int:
     text = (item.get("title", "") + " " + item.get("summary", "")).lower()
     score = 0
+    
     for k in KEYWORDS:
         if k in text: score += 1
     
+    # Unwichtiges (Pflichtmitteilungen) abwerten
     if "dgap-news" in text or "original-research" in text:
         score -= 2 
     return score
 
-# ===== GEMINI ANALYSE (ROBUST) =====
+# ===== GEMINI ANALYSE (FREE TIER FALLBACK) =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     print(f"🧠 Sende {len(news_items)} News an Gemini...")
     
+    # 1. Daten vorbereiten
     bullets = []
     for n in news_items:
         t = n.get("title", "")
-        s = n.get("summary", "")[:250]
+        s = n.get("summary", "")[:250] # Kürzen um Tokens zu sparen
         u = n.get("url", "")
         bullets.append(f"- TITEL: {t}\n  SUMMARY: {s}\n  LINK: {u}")
     
     bullet_text = "\n".join(bullets)
     full_prompt = (PROMPTS["main"] + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
 
-    # API Konfigurieren
+    # 2. API Konfigurieren
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
     
-    # Liste der Modelle zum Durchprobieren (Fallback-Strategie)
-    # 1. Flash-001 (Spezifisch, schnell)
-    # 2. Flash (Alias)
-    # 3. Pro (Langsam, aber sehr stabil)
-    models_to_try = ["gemini-1.5-flash-001", "gemini-1.5-flash", "gemini-pro"]
+    # 3. Modell-Liste für Free Tier (Reihenfolge wichtig!)
+    # Wir probieren erst Flash (schnell/neu), dann Pro (alt/stabil), dann spezifische Versionen
+    models_to_try = [
+        "gemini-1.5-flash", 
+        "gemini-pro", 
+        "gemini-1.5-flash-8b",
+        "gemini-1.0-pro"
+    ]
 
     for model_name in models_to_try:
         try:
             print(f"🤖 Versuche Modell: {model_name} ...")
             model = genai.GenerativeModel(model_name)
+            
+            # Anfrage senden
             resp = model.generate_content(full_prompt)
             
-            # Markdown bereinigen
+            # Text bereinigen (Markdown Code-Blöcke entfernen)
             raw_response = resp.text.replace("```json", "").replace("```", "").strip()
             
-            # Validieren und zurückgeben
+            # Validieren und Erfolgreich zurückgeben
             return IdeaOutput.model_validate_json(raw_response)
 
         except Exception as e:
             error_msg = str(e)
-            if "429" in error_msg:
-                print(f"⏳ Rate Limit bei {model_name}. Warte kurz...")
-                time.sleep(5) # Kurzer Backoff
-            elif "404" in error_msg:
-                print(f"❌ Modell {model_name} nicht gefunden (404). Versuche nächstes...")
+            if "404" in error_msg:
+                print(f"❌ Modell {model_name} nicht gefunden (404).")
+            elif "429" in error_msg:
+                print(f"⏳ Rate Limit (429) bei {model_name}. Warte kurz...")
+                time.sleep(5) 
             else:
                 print(f"⚠️ Fehler bei {model_name}: {error_msg}")
+            
+            # Weiter zum nächsten Modell in der Liste...
     
     print("❌ Alle KI-Modelle fehlgeschlagen.")
     return IdeaOutput(ideen=[])
@@ -149,9 +162,10 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 # ===== E-MAIL SENDEN =====
 def send_email(subject: str, html_content: str):
     if not EMAIL_USER or not EMAIL_PASSWORD or not EMAIL_RECIPIENT_RAW:
-        print("❌ E-Mail-Zugangsdaten fehlen!")
+        print("❌ E-Mail-Zugangsdaten oder Empfänger fehlen!")
         return
 
+    # String in Liste umwandeln ("a@b.com, c@d.com" -> ['a@b.com', 'c@d.com'])
     recipients_list = [email.strip() for email in EMAIL_RECIPIENT_RAW.split(",") if email.strip()]
 
     msg = EmailMessage()
@@ -159,27 +173,31 @@ def send_email(subject: str, html_content: str):
     msg['From'] = EMAIL_USER
     msg['To'] = ", ".join(recipients_list)
     
-    msg.set_content("HTML nicht unterstützt.") 
+    msg.set_content("Dein E-Mail Client unterstützt kein HTML.") 
     msg.add_alternative(html_content, subtype='html')
 
     try:
-        smtp_server = 'smtp.gmail.com' # GMX: 'mail.gmx.net'
+        # Standard: Gmail. Für GMX ändern zu: 'mail.gmx.net'
+        smtp_server = 'smtp.gmail.com' 
         with smtplib.SMTP(smtp_server, 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
             server.send_message(msg)
-        print(f"📧 E-Mail an {len(recipients_list)} Empfänger gesendet!")
+        print(f"📧 E-Mail erfolgreich an {len(recipients_list)} Empfänger gesendet!")
     except Exception as e:
         print(f"❌ Fehler beim E-Mail-Versand: {e}")
 
 # ===== MAIN =====
 def main():
     if not CONFIG.get("sources"):
-        print("❌ Config Fehler.")
+        print("❌ Keine Quellen in der Config gefunden.")
         return
 
     src_config = CONFIG["sources"][0]
-    news = fetch_news_rss(src_config["url"], src_config.get("limit", 15))
+    # Limit nicht zu hoch setzen, um Request-Größe für Free Tier klein zu halten
+    limit = src_config.get("limit", 20)
+    
+    news = fetch_news_rss(src_config["url"], limit)
     
     recent_news = [n for n in news if is_recent(n)]
     relevant_news = [n for n in recent_news if relevance_score(n) >= 1]
@@ -187,7 +205,7 @@ def main():
     print(f"🔎 Relevant: {len(relevant_news)}")
 
     if not relevant_news:
-        print("😴 Keine relevanten News.")
+        print("😴 Keine relevanten News gefunden.")
         return
 
     last_ids = load_last_ids()
@@ -197,23 +215,25 @@ def main():
     final_news_list = [n for n in relevant_news if n["url"] in new_ids]
     
     if not final_news_list:
-        print("🔄 Nichts Neues.")
+        print("🔄 Alle relevanten News wurden bereits versendet.")
         save_last_ids(last_ids.union(current_ids))
         return
 
-    # KI Analyse
+    # KI Analyse (Max 10 News um Tokens zu sparen)
     ai_result = analyze_with_gemini(final_news_list[:10])
     
     if not ai_result.ideen:
-        print("🤷 Keine Ergebnisse.")
+        print("🤷 Gemini hat keine konkreten Handelsideen gefunden.")
         save_last_ids(last_ids.union(new_ids))
         return
 
-    # HTML Email bauen
+    # HTML Email zusammenbauen
     html_body = "<h2>🚀 Neue Finanz-Ideen</h2><hr>"
     for idee in ai_result.ideen:
         score = idee.vertrauen
+        # Normalisierung falls KI 0.9 statt 90 liefert
         if score <= 1: score *= 100
+        
         color = "green" if score > 75 else "orange"
         
         html_body += f"""
@@ -223,9 +243,12 @@ def main():
             <p>{idee.begruendung}</p>
         </div>
         """
-    html_body += f"<hr><p style='font-size:small; color:gray;'>Bot Run: {datetime.now().strftime('%H:%M')}</p>"
+    
+    html_body += f"<hr><p style='font-size:small; color:gray;'>Generiert vom FinanzBot am {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>"
 
-    send_email(f"FinanzBot: {len(ai_result.ideen)} Ideen 📈", html_body)
+    subject = f"FinanzBot: {len(ai_result.ideen)} neue Chancen 📈"
+    send_email(subject, html_body)
+    
     save_last_ids(last_ids.union(new_ids))
 
 if __name__ == "__main__":
