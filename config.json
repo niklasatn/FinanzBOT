@@ -25,10 +25,11 @@
     "Tech"
   ],
   "prompts": {
-    "main": "Du bist ein Finanzanalyst. Analysiere die folgenden Nachrichtenheadlines und Zusammenfassungen von Finanzen.net. Identifiziere konkrete Handelsideen für Privatanleger.",
-    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen'. Felder: name (Name des Assets/Aktie), typ (Aktie/ETF/Krypto), begruendung (Prägnante Begründung warum diese News den Kurs bewegen könnte, deutsch), vertrauen (Zahl 0-100 basierend auf der Eindeutigkeit der News). Gib maximal 3 beste Ideen aus. Keine Einleitung, kein Markdown Code-Block, nur reines JSON."
+    "main": "Du bist ein persönlicher Finanzanalyst. Hier ist das aktuelle Portfolio des Nutzers: '{portfolio}'.\n\nAufgabe:\n1. Prüfe ZUERST, ob die folgenden Nachrichten direkte Auswirkungen (positiv/negativ) auf Werte im Portfolio haben.\n2. Suche DANACH nach neuen, spannenden Handelsideen, auch wenn sie nicht im Portfolio sind.\n\nAnalysiere die folgenden Nachrichtenheadlines und Zusammenfassungen:",
+    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen'. Felder:\n- name (Name des Assets),\n- typ (Aktie/ETF/Krypto),\n- begruendung (Prägnante Analyse, warum das Portfolio betroffen ist oder warum es eine gute neue Idee ist),\n- vertrauen (0-100),\n- betrifft_portfolio (boolean: true wenn es sich auf einen Wert aus dem Portfolio bezieht, sonst false).\n\nGib maximal 5 Einträge zurück. Priorisiere Nachrichten, die das Portfolio betreffen!"
   },
   "email_user_env": "EMAIL_USER",
   "email_password_env": "EMAIL_PASSWORD",
-  "email_recipient_env": "EMAIL_RECIPIENT"
+  "email_recipient_env": "EMAIL_RECIPIENT",
+  "portfolio_env": "USER_PORTFOLIO"
 }
