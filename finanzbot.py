@@ -18,6 +18,9 @@ EMAIL_USER = os.getenv(CONFIG["email_user_env"])
 EMAIL_PASSWORD = os.getenv(CONFIG["email_password_env"])
 EMAIL_RECIPIENT_RAW = os.getenv(CONFIG["email_recipient_env"])
 
+# Portfolio laden (Standardwert falls leer)
+USER_PORTFOLIO = os.getenv(CONFIG.get("portfolio_env"), "Kein Portfolio hinterlegt")
+
 STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 4
 
@@ -27,6 +30,7 @@ class IdeaItem(BaseModel):
     typ: str
     begruendung: str
     vertrauen: float
+    betrifft_portfolio: bool = False  # Neues Feld
 
 class IdeaOutput(BaseModel):
     ideen: List[IdeaItem]
@@ -47,7 +51,6 @@ def save_last_ids(ids):
 
 # ===== UTILS =====
 def clean_html(raw_html: str) -> str:
-    """Entfernt HTML-Tags aus RSS-Beschreibungen."""
     cleanr = re.compile('<.*?>')
     cleantext = re.sub(cleanr, '', raw_html)
     return cleantext.strip()
@@ -99,9 +102,9 @@ def relevance_score(item: dict) -> int:
         score -= 2 
     return score
 
-# ===== GEMINI ANALYSE (MODEL UPDATE) =====
+# ===== GEMINI ANALYSE =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    print(f"🧠 Sende {len(news_items)} News an Gemini...")
+    print(f"🧠 Sende {len(news_items)} News an Gemini (Portfolio: {USER_PORTFOLIO[:30]}...)...")
     
     bullets = []
     for n in news_items:
@@ -111,26 +114,23 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
         bullets.append(f"- TITEL: {t}\n  SUMMARY: {s}\n  LINK: {u}")
     
     bullet_text = "\n".join(bullets)
-    full_prompt = (PROMPTS["main"] + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
+    
+    # Hier fügen wir das Portfolio in den Prompt ein
+    prompt_intro = PROMPTS["main"].replace("{portfolio}", USER_PORTFOLIO)
+    
+    full_prompt = (prompt_intro + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
 
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
     
-    # HIER SIND IHRE GEWÜNSCHTEN MODELLE
-    # 1. Priorität: 2.5 Pro
-    # 2. Priorität: 2.5 Flash
-    # 3. Notanker: 1.5 Flash (falls 2.5 noch nicht live/freigeschaltet)
-    models_to_try = [
-        "gemini-2.5-pro", 
-        "gemini-2.5-flash", 
-        "gemini-1.5-flash"
-    ]
+    # Modelle (Priorität: 2.5 Pro -> 2.5 Flash -> 1.5 Flash Fallback)
+    models_to_try = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-flash"]
 
     for model_name in models_to_try:
         try:
             print(f"🤖 Versuche Modell: {model_name} ...")
             model = genai.GenerativeModel(model_name)
-            
             resp = model.generate_content(full_prompt)
+            
             raw_response = resp.text.replace("```json", "").replace("```", "").strip()
             
             return IdeaOutput.model_validate_json(raw_response)
@@ -140,12 +140,11 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
             if "404" in error_msg:
                 print(f"❌ Modell {model_name} nicht gefunden (404).")
             elif "429" in error_msg:
-                print(f"⏳ Rate Limit (429) bei {model_name}. Warte kurz...")
+                print(f"⏳ Rate Limit bei {model_name}. Warte 5s...")
                 time.sleep(5) 
             else:
                 print(f"⚠️ Fehler bei {model_name}: {error_msg}")
     
-    print("❌ Alle KI-Modelle fehlgeschlagen.")
     return IdeaOutput(ideen=[])
 
 # ===== E-MAIL SENDEN =====
@@ -165,7 +164,7 @@ def send_email(subject: str, html_content: str):
     msg.add_alternative(html_content, subtype='html')
 
     try:
-        smtp_server = 'smtp.gmail.com' # GMX: 'mail.gmx.net'
+        smtp_server = 'smtp.gmail.com' # Für GMX anpassen
         with smtplib.SMTP(smtp_server, 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
@@ -176,16 +175,11 @@ def send_email(subject: str, html_content: str):
 
 # ===== MAIN =====
 def main():
-    if not CONFIG.get("sources"):
-        print("❌ Config Fehler.")
-        return
-
+    if not CONFIG.get("sources"): return
     src_config = CONFIG["sources"][0]
-    # Limit im Zaum halten für Free Tier
-    limit = src_config.get("limit", 20)
+    limit = src_config.get("limit", 25)
     
     news = fetch_news_rss(src_config["url"], limit)
-    
     recent_news = [n for n in news if is_recent(n)]
     relevant_news = [n for n in recent_news if relevance_score(n) >= 1]
     
@@ -198,38 +192,56 @@ def main():
     last_ids = load_last_ids()
     current_ids = {n["url"] for n in relevant_news}
     new_ids = current_ids - last_ids
-    
     final_news_list = [n for n in relevant_news if n["url"] in new_ids]
     
     if not final_news_list:
-        print("🔄 Nichts Neues.")
+        print("🔄 Alle News schon bekannt.")
         save_last_ids(last_ids.union(current_ids))
         return
 
-    ai_result = analyze_with_gemini(final_news_list[:10])
+    ai_result = analyze_with_gemini(final_news_list[:12])
     
     if not ai_result.ideen:
         print("🤷 Keine Ergebnisse.")
         save_last_ids(last_ids.union(new_ids))
         return
 
-    html_body = "<h2>🚀 Neue Finanz-Ideen</h2><hr>"
+    # HTML Email mit Portfolio-Highlighting
+    html_body = "<h2>🚀 Finanz-Update & Portfolio-Check</h2><hr>"
+    
+    count_portfolio = 0
     for idee in ai_result.ideen:
         score = idee.vertrauen
         if score <= 1: score *= 100
-        color = "green" if score > 75 else "orange"
         
+        # Design-Logik
+        if idee.betrifft_portfolio:
+            # Portfolio-Treffer: Lila, Koffer-Icon, Fett
+            color = "#6a0dad" # Lila
+            bg_color = "#f3e5f5"
+            icon = "💼 <b>DEIN PORTFOLIO</b>"
+            count_portfolio += 1
+        else:
+            # Allgemeine Idee: Grün/Orange
+            color = "green" if score > 75 else "orange"
+            bg_color = "#f9f9f9"
+            icon = "💡 Neue Idee"
+
         html_body += f"""
-        <div style="margin-bottom: 20px; padding: 10px; border-left: 5px solid {color}; background-color: #f9f9f9; font-family: Arial, sans-serif;">
-            <h3 style="margin: 0;">{idee.name} <span style="font-size: 0.8em; color: #666;">({idee.typ})</span></h3>
-            <p style="font-weight: bold; color: {color};">Vertrauen: {score:.0f}%</p>
-            <p>{idee.begruendung}</p>
+        <div style="margin-bottom: 20px; padding: 15px; border-left: 6px solid {color}; background-color: {bg_color}; font-family: Arial, sans-serif; border-radius: 4px;">
+            <div style="color: {color}; font-size: 0.85em; margin-bottom: 5px;">{icon}</div>
+            <h3 style="margin: 0; color: #333;">{idee.name} <span style="font-size: 0.8em; color: #666;">({idee.typ})</span></h3>
+            <p style="font-weight: bold; color: {color}; margin: 5px 0;">Vertrauen: {score:.0f}%</p>
+            <p style="margin-top: 5px; line-height: 1.5;">{idee.begruendung}</p>
         </div>
         """
     
-    html_body += f"<hr><p style='font-size:small; color:gray;'>Bot Run: {datetime.now().strftime('%H:%M')}</p>"
+    html_body += f"<hr><p style='font-size:small; color:gray;'>Bot Run: {datetime.now().strftime('%H:%M')} | Portfolio-Treffer: {count_portfolio}</p>"
 
-    send_email(f"FinanzBot: {len(ai_result.ideen)} Ideen 📈", html_body)
+    subj_prefix = "🚨 WICHTIG: " if count_portfolio > 0 else ""
+    subject = f"{subj_prefix}FinanzBot: {len(ai_result.ideen)} Updates ({count_portfolio} Portfolio)"
+    
+    send_email(subject, html_body)
     save_last_ids(last_ids.union(new_ids))
 
 if __name__ == "__main__":
