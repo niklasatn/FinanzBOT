@@ -2,9 +2,9 @@ name: Finanzbot
 
 on:
   schedule:
-    # Zeitplan: z.B. alle 4 Stunden (oder Ihre Wunschzeit)
+    # Zeitplan: Führt den Bot alle 4 Stunden aus (z.B. 0:00, 4:00, 8:00 etc.)
     - cron: "0 */4 * * *"
-  workflow_dispatch: # Erlaubt manuellen Start per Button
+  workflow_dispatch: # Erlaubt den manuellen Start über den "Run workflow" Button
 
 jobs:
   run-bot:
@@ -26,7 +26,11 @@ jobs:
       - name: 🤖 Finanzbot ausführen
         run: python finanzbot.py
         env:
+          # API Keys & E-Mail Zugangsdaten
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          
+          # NEU: Das Portfolio wird hier übergeben
+          USER_PORTFOLIO: ${{ secrets.USER_PORTFOLIO }}
