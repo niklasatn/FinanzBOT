@@ -2,8 +2,9 @@ name: Finanzbot
 
 on:
   schedule:
-    - cron: "*/60 * * * *"
-  workflow_dispatch:
+    # Zeitplan: z.B. alle 4 Stunden (oder Ihre Wunschzeit)
+    - cron: "0 */4 * * *"
+  workflow_dispatch: # Erlaubt manuellen Start per Button
 
 jobs:
   run-bot:
@@ -17,7 +18,7 @@ jobs:
         with:
           python-version: "3.12"
           
-      - name: 🛠️ Abhängigkeiten installieren (aus requirements.txt)
+      - name: 🛠️ Abhängigkeiten installieren
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
@@ -26,5 +27,6 @@ jobs:
         run: python finanzbot.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
-          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
