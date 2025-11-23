@@ -12,10 +12,9 @@ with open("config.json", "r", encoding="utf-8") as f:
 KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
 
-# E-Mail Konfiguration aus Env laden
+# E-Mail Konfiguration
 EMAIL_USER = os.getenv(CONFIG["email_user_env"])
 EMAIL_PASSWORD = os.getenv(CONFIG["email_password_env"])
-# Hier stehen jetzt evtl. mehrere Mails, getrennt durch Komma
 EMAIL_RECIPIENT_RAW = os.getenv(CONFIG["email_recipient_env"])
 
 STATE_FILE = "last_sent.json"
@@ -64,6 +63,7 @@ def fetch_news_rss(url: str, limit: int = 30) -> List[Dict[str, Any]]:
         summary = clean_html(summary)
         
         published_dt = None
+        # Verschiedene Zeitformate im RSS prüfen
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
         elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
@@ -93,44 +93,64 @@ def relevance_score(item: dict) -> int:
     score = 0
     for k in KEYWORDS:
         if k in text: score += 1
+    
+    # Unwichtiges abwerten
     if "dgap-news" in text or "original-research" in text:
         score -= 2 
     return score
 
 # ===== GEMINI ANALYSE =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    print(f"🧠 Sende {len(news_items)} News an Gemini...")
+    # Hier werden alle News in EINEN String gepackt -> Nur 1 Anfrage!
+    print(f"🧠 Sende {len(news_items)} News gebündelt an Gemini (Modell: gemini-1.5-flash)...")
+    
     bullets = []
     for n in news_items:
         t = n.get("title", "")
-        s = n.get("summary", "")[:200]
+        s = n.get("summary", "")[:250] # Limit pro News, um Tokens zu sparen
         u = n.get("url", "")
         bullets.append(f"- TITEL: {t}\n  SUMMARY: {s}\n  LINK: {u}")
     
     bullet_text = "\n".join(bullets)
     full_prompt = (PROMPTS["main"] + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
 
-    try:
-        if importlib.util.find_spec("google.genai"):
-            from google import genai
-            client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-            resp = client.models.generate_content(
-                model="gemini-2.0-flash-exp",
-                contents=full_prompt,
-                config={"response_mime_type": "application/json"}
-            )
-            raw_response = resp.text
-        else:
-            import google.generativeai as genai
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            resp = model.generate_content(full_prompt)
-            raw_response = resp.text.replace("```json", "").replace("```", "")
-            
-        return IdeaOutput.model_validate_json(raw_response)
-    except Exception as e:
-        print(f"⚠️ KI Fehler: {e}")
-        return IdeaOutput(ideen=[])
+    # Retry-Logik (3 Versuche)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Nutzung des neuen Google Gen AI SDKs
+            if importlib.util.find_spec("google.genai"):
+                from google import genai
+                client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+                
+                # WICHTIG: Hier nutzen wir jetzt das stabile Modell
+                resp = client.models.generate_content(
+                    model="gemini-1.5-flash", 
+                    contents=full_prompt,
+                    config={"response_mime_type": "application/json"}
+                )
+                raw_response = resp.text
+                
+            # Fallback für älteres SDK
+            else:
+                import google.generativeai as genai
+                genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                resp = model.generate_content(full_prompt)
+                raw_response = resp.text.replace("```json", "").replace("```", "")
+
+            # Erfolgreich -> Parsen
+            return IdeaOutput.model_validate_json(raw_response)
+
+        except Exception as e:
+            print(f"⚠️ Versuch {attempt+1}/{max_retries} fehlgeschlagen: {e}")
+            if "429" in str(e):
+                print("⏳ Warte 10 Sekunden wegen Rate Limit...")
+                time.sleep(10)
+            else:
+                break # Bei anderen Fehlern abbrechen
+
+    return IdeaOutput(ideen=[])
 
 # ===== E-MAIL SENDEN =====
 def send_email(subject: str, html_content: str):
@@ -138,20 +158,20 @@ def send_email(subject: str, html_content: str):
         print("❌ E-Mail-Zugangsdaten oder Empfänger fehlen!")
         return
 
-    # Empfänger-String in Liste umwandeln (trennen am Komma, Leerzeichen entfernen)
     recipients_list = [email.strip() for email in EMAIL_RECIPIENT_RAW.split(",") if email.strip()]
 
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = EMAIL_USER
-    # To-Header akzeptiert kommaseparierten String
     msg['To'] = ", ".join(recipients_list)
     
-    msg.set_content("Dein E-Mail Client unterstützt kein HTML.") # Fallback Text
+    msg.set_content("Dein E-Mail Client unterstützt kein HTML.") 
     msg.add_alternative(html_content, subtype='html')
 
     try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        # Hier bei Bedarf 'mail.gmx.net' eintragen, falls kein Gmail
+        smtp_server = 'smtp.gmail.com' 
+        with smtplib.SMTP(smtp_server, 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
             server.send_message(msg)
@@ -161,10 +181,18 @@ def send_email(subject: str, html_content: str):
 
 # ===== MAIN =====
 def main():
+    if not CONFIG.get("sources"):
+        print("❌ Keine Quellen in der Config.")
+        return
+
     src_config = CONFIG["sources"][0]
-    news = fetch_news_rss(src_config["url"], src_config.get("limit", 30))
+    # Limit auf 15 News setzen, um Request-Größe überschaubar zu halten
+    news_limit = src_config.get("limit", 15)
+    
+    news = fetch_news_rss(src_config["url"], news_limit)
     
     recent_news = [n for n in news if is_recent(n)]
+    # Relevanz-Filter etwas strenger (>= 1)
     relevant_news = [n for n in recent_news if relevance_score(n) >= 1]
     
     print(f"🔎 Relevant: {len(relevant_news)}")
@@ -184,6 +212,7 @@ def main():
         save_last_ids(last_ids.union(current_ids))
         return
 
+    # Wir nehmen max 10 News mit in die Analyse, um Tokens zu sparen
     ai_result = analyze_with_gemini(final_news_list[:10])
     
     if not ai_result.ideen:
@@ -199,7 +228,7 @@ def main():
         color = "green" if score > 75 else "orange"
         
         html_body += f"""
-        <div style="margin-bottom: 20px; padding: 10px; border-left: 5px solid {color}; background-color: #f9f9f9;">
+        <div style="margin-bottom: 20px; padding: 10px; border-left: 5px solid {color}; background-color: #f9f9f9; font-family: Arial, sans-serif;">
             <h3 style="margin: 0;">{idee.name} <span style="font-size: 0.8em; color: #666;">({idee.typ})</span></h3>
             <p style="font-weight: bold; color: {color};">Vertrauen: {score:.0f}%</p>
             <p>{idee.begruendung}</p>
@@ -208,7 +237,6 @@ def main():
     
     html_body += f"<hr><p style='font-size:small; color:gray;'>Generiert vom FinanzBot am {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>"
 
-    # Senden
     subject = f"FinanzBot: {len(ai_result.ideen)} neue Chancen 📈"
     send_email(subject, html_body)
     
