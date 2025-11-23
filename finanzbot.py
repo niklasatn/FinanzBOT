@@ -1,5 +1,6 @@
-import os, json, requests, importlib, time, re, smtplib
+import os, json, requests, time, re, smtplib
 import feedparser
+import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 from pydantic import BaseModel
@@ -63,7 +64,6 @@ def fetch_news_rss(url: str, limit: int = 30) -> List[Dict[str, Any]]:
         summary = clean_html(summary)
         
         published_dt = None
-        # Verschiedene Zeitformate im RSS prüfen
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
         elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
@@ -94,61 +94,50 @@ def relevance_score(item: dict) -> int:
     for k in KEYWORDS:
         if k in text: score += 1
     
-    # Unwichtiges abwerten
     if "dgap-news" in text or "original-research" in text:
         score -= 2 
     return score
 
-# ===== GEMINI ANALYSE =====
+# ===== GEMINI ANALYSE (STABLE) =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    # Hier werden alle News in EINEN String gepackt -> Nur 1 Anfrage!
     print(f"🧠 Sende {len(news_items)} News gebündelt an Gemini (Modell: gemini-1.5-flash)...")
     
     bullets = []
     for n in news_items:
         t = n.get("title", "")
-        s = n.get("summary", "")[:250] # Limit pro News, um Tokens zu sparen
+        s = n.get("summary", "")[:250]
         u = n.get("url", "")
         bullets.append(f"- TITEL: {t}\n  SUMMARY: {s}\n  LINK: {u}")
     
     bullet_text = "\n".join(bullets)
     full_prompt = (PROMPTS["main"] + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
 
-    # Retry-Logik (3 Versuche)
+    # Konfiguration der stabilen Library
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    
+    # Retry-Logik
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Nutzung des neuen Google Gen AI SDKs
-            if importlib.util.find_spec("google.genai"):
-                from google import genai
-                client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-                
-                # WICHTIG: Hier nutzen wir jetzt das stabile Modell
-                resp = client.models.generate_content(
-                    model="gemini-1.5-flash", 
-                    contents=full_prompt,
-                    config={"response_mime_type": "application/json"}
-                )
-                raw_response = resp.text
-                
-            # Fallback für älteres SDK
-            else:
-                import google.generativeai as genai
-                genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-                model = genai.GenerativeModel("gemini-1.5-flash")
-                resp = model.generate_content(full_prompt)
-                raw_response = resp.text.replace("```json", "").replace("```", "")
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            
+            # Request senden
+            resp = model.generate_content(full_prompt)
+            
+            # Markdown entfernen falls vorhanden
+            raw_response = resp.text.replace("```json", "").replace("```", "").strip()
 
-            # Erfolgreich -> Parsen
+            # Parsen
             return IdeaOutput.model_validate_json(raw_response)
 
         except Exception as e:
             print(f"⚠️ Versuch {attempt+1}/{max_retries} fehlgeschlagen: {e}")
             if "429" in str(e):
-                print("⏳ Warte 10 Sekunden wegen Rate Limit...")
+                print("⏳ Warte 10 Sekunden (Rate Limit)...")
                 time.sleep(10)
             else:
-                break # Bei anderen Fehlern abbrechen
+                # Bei 500er Fehlern kurz warten, bei anderen abbrechen
+                time.sleep(2)
 
     return IdeaOutput(ideen=[])
 
@@ -169,8 +158,7 @@ def send_email(subject: str, html_content: str):
     msg.add_alternative(html_content, subtype='html')
 
     try:
-        # Hier bei Bedarf 'mail.gmx.net' eintragen, falls kein Gmail
-        smtp_server = 'smtp.gmail.com' 
+        smtp_server = 'smtp.gmail.com' # Für GMX: 'mail.gmx.net'
         with smtplib.SMTP(smtp_server, 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
@@ -186,13 +174,11 @@ def main():
         return
 
     src_config = CONFIG["sources"][0]
-    # Limit auf 15 News setzen, um Request-Größe überschaubar zu halten
     news_limit = src_config.get("limit", 15)
     
     news = fetch_news_rss(src_config["url"], news_limit)
     
     recent_news = [n for n in news if is_recent(n)]
-    # Relevanz-Filter etwas strenger (>= 1)
     relevant_news = [n for n in recent_news if relevance_score(n) >= 1]
     
     print(f"🔎 Relevant: {len(relevant_news)}")
@@ -212,7 +198,6 @@ def main():
         save_last_ids(last_ids.union(current_ids))
         return
 
-    # Wir nehmen max 10 News mit in die Analyse, um Tokens zu sparen
     ai_result = analyze_with_gemini(final_news_list[:10])
     
     if not ai_result.ideen:
@@ -220,7 +205,6 @@ def main():
         save_last_ids(last_ids.union(new_ids))
         return
 
-    # E-Mail HTML zusammenbauen
     html_body = "<h2>🚀 Neue Finanz-Ideen</h2><hr>"
     for idee in ai_result.ideen:
         score = idee.vertrauen
