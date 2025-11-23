@@ -98,9 +98,9 @@ def relevance_score(item: dict) -> int:
         score -= 2 
     return score
 
-# ===== GEMINI ANALYSE (STABLE) =====
+# ===== GEMINI ANALYSE (ROBUST) =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    print(f"🧠 Sende {len(news_items)} News gebündelt an Gemini (Modell: gemini-1.5-flash)...")
+    print(f"🧠 Sende {len(news_items)} News an Gemini...")
     
     bullets = []
     for n in news_items:
@@ -112,39 +112,44 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     bullet_text = "\n".join(bullets)
     full_prompt = (PROMPTS["main"] + "\n\n" + PROMPTS["format"] + "\n\n" + "HIER SIND DIE NEWS:\n" + bullet_text)
 
-    # Konfiguration der stabilen Library
+    # API Konfigurieren
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
     
-    # Retry-Logik
-    max_retries = 3
-    for attempt in range(max_retries):
+    # Liste der Modelle zum Durchprobieren (Fallback-Strategie)
+    # 1. Flash-001 (Spezifisch, schnell)
+    # 2. Flash (Alias)
+    # 3. Pro (Langsam, aber sehr stabil)
+    models_to_try = ["gemini-1.5-flash-001", "gemini-1.5-flash", "gemini-pro"]
+
+    for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            
-            # Request senden
+            print(f"🤖 Versuche Modell: {model_name} ...")
+            model = genai.GenerativeModel(model_name)
             resp = model.generate_content(full_prompt)
             
-            # Markdown entfernen falls vorhanden
+            # Markdown bereinigen
             raw_response = resp.text.replace("```json", "").replace("```", "").strip()
-
-            # Parsen
+            
+            # Validieren und zurückgeben
             return IdeaOutput.model_validate_json(raw_response)
 
         except Exception as e:
-            print(f"⚠️ Versuch {attempt+1}/{max_retries} fehlgeschlagen: {e}")
-            if "429" in str(e):
-                print("⏳ Warte 10 Sekunden (Rate Limit)...")
-                time.sleep(10)
+            error_msg = str(e)
+            if "429" in error_msg:
+                print(f"⏳ Rate Limit bei {model_name}. Warte kurz...")
+                time.sleep(5) # Kurzer Backoff
+            elif "404" in error_msg:
+                print(f"❌ Modell {model_name} nicht gefunden (404). Versuche nächstes...")
             else:
-                # Bei 500er Fehlern kurz warten, bei anderen abbrechen
-                time.sleep(2)
-
+                print(f"⚠️ Fehler bei {model_name}: {error_msg}")
+    
+    print("❌ Alle KI-Modelle fehlgeschlagen.")
     return IdeaOutput(ideen=[])
 
 # ===== E-MAIL SENDEN =====
 def send_email(subject: str, html_content: str):
     if not EMAIL_USER or not EMAIL_PASSWORD or not EMAIL_RECIPIENT_RAW:
-        print("❌ E-Mail-Zugangsdaten oder Empfänger fehlen!")
+        print("❌ E-Mail-Zugangsdaten fehlen!")
         return
 
     recipients_list = [email.strip() for email in EMAIL_RECIPIENT_RAW.split(",") if email.strip()]
@@ -154,29 +159,27 @@ def send_email(subject: str, html_content: str):
     msg['From'] = EMAIL_USER
     msg['To'] = ", ".join(recipients_list)
     
-    msg.set_content("Dein E-Mail Client unterstützt kein HTML.") 
+    msg.set_content("HTML nicht unterstützt.") 
     msg.add_alternative(html_content, subtype='html')
 
     try:
-        smtp_server = 'smtp.gmail.com' # Für GMX: 'mail.gmx.net'
+        smtp_server = 'smtp.gmail.com' # GMX: 'mail.gmx.net'
         with smtplib.SMTP(smtp_server, 587) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
             server.send_message(msg)
-        print(f"📧 E-Mail erfolgreich an {len(recipients_list)} Empfänger gesendet!")
+        print(f"📧 E-Mail an {len(recipients_list)} Empfänger gesendet!")
     except Exception as e:
         print(f"❌ Fehler beim E-Mail-Versand: {e}")
 
 # ===== MAIN =====
 def main():
     if not CONFIG.get("sources"):
-        print("❌ Keine Quellen in der Config.")
+        print("❌ Config Fehler.")
         return
 
     src_config = CONFIG["sources"][0]
-    news_limit = src_config.get("limit", 15)
-    
-    news = fetch_news_rss(src_config["url"], news_limit)
+    news = fetch_news_rss(src_config["url"], src_config.get("limit", 15))
     
     recent_news = [n for n in news if is_recent(n)]
     relevant_news = [n for n in recent_news if relevance_score(n) >= 1]
@@ -194,17 +197,19 @@ def main():
     final_news_list = [n for n in relevant_news if n["url"] in new_ids]
     
     if not final_news_list:
-        print("🔄 Alle News schon bekannt.")
+        print("🔄 Nichts Neues.")
         save_last_ids(last_ids.union(current_ids))
         return
 
+    # KI Analyse
     ai_result = analyze_with_gemini(final_news_list[:10])
     
     if not ai_result.ideen:
-        print("🤷 Keine Handelsideen.")
+        print("🤷 Keine Ergebnisse.")
         save_last_ids(last_ids.union(new_ids))
         return
 
+    # HTML Email bauen
     html_body = "<h2>🚀 Neue Finanz-Ideen</h2><hr>"
     for idee in ai_result.ideen:
         score = idee.vertrauen
@@ -218,12 +223,9 @@ def main():
             <p>{idee.begruendung}</p>
         </div>
         """
-    
-    html_body += f"<hr><p style='font-size:small; color:gray;'>Generiert vom FinanzBot am {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>"
+    html_body += f"<hr><p style='font-size:small; color:gray;'>Bot Run: {datetime.now().strftime('%H:%M')}</p>"
 
-    subject = f"FinanzBot: {len(ai_result.ideen)} neue Chancen 📈"
-    send_email(subject, html_body)
-    
+    send_email(f"FinanzBot: {len(ai_result.ideen)} Ideen 📈", html_body)
     save_last_ids(last_ids.union(new_ids))
 
 if __name__ == "__main__":
