@@ -2,23 +2,29 @@ name: Finanzbot
 
 on:
   schedule:
-    - cron: "*/60 * * * *"   # Jede Stunde
+    - cron: "*/60 * * * *"
   workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: 📦 Repository auschecken
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Python einrichten
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Abhängigkeiten installieren
-        run: pip install requests google-genai pydantic
-      - name: Finanzbot ausführen
+          
+      - name: 🛠️ Abhängigkeiten installieren (aus requirements.txt)
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: 🤖 Finanzbot ausführen
+        run: python finanzbot.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALPHAVANTAGE_KEY: ${{ secrets.ALPHAVANTAGE_KEY }}
           PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
           PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
-        run: python finanzbot.py
