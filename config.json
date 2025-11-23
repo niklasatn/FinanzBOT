@@ -28,6 +28,7 @@
     "main": "Du bist ein Finanzanalyst. Analysiere die folgenden Nachrichtenheadlines und Zusammenfassungen von Finanzen.net. Identifiziere konkrete Handelsideen für Privatanleger.",
     "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen'. Felder: name (Name des Assets/Aktie), typ (Aktie/ETF/Krypto), begruendung (Prägnante Begründung warum diese News den Kurs bewegen könnte, deutsch), vertrauen (Zahl 0-100 basierend auf der Eindeutigkeit der News). Gib maximal 3 beste Ideen aus. Keine Einleitung, kein Markdown Code-Block, nur reines JSON."
   },
-  "pushover_user_env": "PUSHOVER_USER",
-  "pushover_token_env": "PUSHOVER_TOKEN"
+  "email_user_env": "EMAIL_USER",
+  "email_password_env": "EMAIL_PASSWORD",
+  "email_recipient_env": "EMAIL_RECIPIENT"
 }
