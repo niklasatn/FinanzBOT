@@ -22,11 +22,13 @@
     "Allzeithoch",
     "Crash",
     "Künstliche Intelligenz",
-    "Tech"
+    "Tech",
+    "Bitcoin",
+    "Krypto"
   ],
   "prompts": {
-    "main": "Du bist ein persönlicher Finanzanalyst. Hier ist das aktuelle Portfolio des Nutzers: '{portfolio}'.\n\nAufgabe:\n1. Prüfe ZUERST, ob die folgenden Nachrichten direkte Auswirkungen (positiv/negativ) auf Werte im Portfolio haben.\n2. Suche DANACH nach neuen, spannenden Handelsideen, auch wenn sie nicht im Portfolio sind.\n\nAnalysiere die folgenden Nachrichtenheadlines und Zusammenfassungen:",
-    "format": "Antworte ausschließlich im JSON-Format mit einer Liste 'ideen'. Felder:\n- name (Name des Assets),\n- typ (Aktie/ETF/Krypto),\n- begruendung (Prägnante Analyse, warum das Portfolio betroffen ist oder warum es eine gute neue Idee ist),\n- vertrauen (0-100),\n- betrifft_portfolio (boolean: true wenn es sich auf einen Wert aus dem Portfolio bezieht, sonst false).\n\nGib maximal 5 Einträge zurück. Priorisiere Nachrichten, die das Portfolio betreffen!"
+    "main": "Du bist ein strenger Vermögensverwalter. Hier ist das Portfolio des Nutzers: '{portfolio}'.\n\nDeine Aufgabe ist der Schutz und die Vermehrung dieses Vermögens.\n1. Analysiere die News auf GEFAHREN für das Portfolio (z.B. schlechte Zahlen, Klagen, Analysten-Downgrades) -> Signal: VERKAUF PRÜFEN.\n2. Analysiere die News auf CHANCEN für das Portfolio (z.B. Rekordgewinne, Analysten-Upgrades) -> Signal: NACHKAUFEN.\n3. Suche erst danach nach neuen Ideen außerhalb des Portfolios.\n\nNews:",
+    "format": "Antworte nur im JSON-Format mit einer Liste 'ideen'. Felder:\n- name (Asset Name)\n- typ (Aktie/ETF/Krypto)\n- signal (Wähle exakt eins: 'KAUFCHANCE', 'VERKAUF PRÜFEN', 'NEUTRAL', 'BEOBACHTEN')\n- begruendung (Kurze, harte Faktenlage. Warum droht Gefahr oder winkt Gewinn?)\n- vertrauen (0-100)\n- betrifft_portfolio (boolean: true/false)\n\nMaximal 5 Einträge. Wichtigstes zuerst!"
   },
   "email_user_env": "EMAIL_USER",
   "email_password_env": "EMAIL_PASSWORD",
