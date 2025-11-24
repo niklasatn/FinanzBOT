@@ -177,65 +177,71 @@ def main():
         save_last_ids(last_ids.union(new_ids))
         return
 
-    # ===== FILTER LOGIK (NUR ACTION!) =====
+    # ===== FILTER LOGIK =====
     relevant_for_mail = []
 
     for idee in ai_result.ideen:
         score = idee.vertrauen
         sig_upper = idee.signal.upper()
         
-        # Prüfung: Ist es ein Aktions-Signal?
-        # Wir suchen nach Wörtern wie "KAUF", "NACHKAUFEN", "VERKAUF"
-        # "NEUTRAL", "HALTEN", "BEOBACHTEN" fallen hier raus.
         is_action_signal = ("KAUF" in sig_upper) or ("VERKAUF" in sig_upper)
 
-        # 1. Fall: Portfolio-relevant UND > 70% UND Aktions-Signal
+        # 1. Fall: Portfolio > 70% + Action
         if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
             if is_action_signal:
                 relevant_for_mail.append(idee)
             
-        # 2. Fall: NICHT im Portfolio, aber KAUF-Signal UND > 90%
+        # 2. Fall: Neu > 90% + Kauf
         elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
-            # Bei neuen Sachen akzeptieren wir nur KAUF-Signale (kein Verkauf von Dingen die wir nicht haben)
             if "KAUF" in sig_upper or "NACHKAUFEN" in sig_upper:
                 relevant_for_mail.append(idee)
 
     if not relevant_for_mail:
-        print(f"📉 Keine Signale mit Handlungsbedarf (nur Neutral/Beobachten oder zu geringes Vertrauen).")
+        print(f"📉 Keine Signale mit Handlungsbedarf.")
         save_last_ids(last_ids.union(current_ids))
         return
 
-    # --- E-MAIL ZUSAMMENBAUEN ---
-    subject_parts = []
+    # --- BETREFF GENERIEREN (NEU) ---
+    subject_actions = []
     
-    # Symbole für Betreff
-    if any("VERKAUF" in i.signal.upper() for i in relevant_for_mail):
-        subject_parts.append("⚠️ VERKAUF")
-    if any("KAUF" in i.signal.upper() for i in relevant_for_mail):
-        subject_parts.append("💰 KAUF")
-        
-    subject = f"🚨 HANDLUNG: {' & '.join(subject_parts)}"
+    for item in relevant_for_mail:
+        # Namen bereinigen: "NVIDIA Corp. (NVDA)" -> "NVIDIA Corp."
+        short_name = item.name.split("(")[0].strip()
+        # Falls immer noch sehr lang, kürzen
+        if len(short_name) > 15:
+            short_name = short_name[:12] + ".."
+            
+        if "VERKAUF" in item.signal.upper():
+            subject_actions.append(f"⚠️ Verkauf {short_name}")
+        else:
+            subject_actions.append(f"💰 Kauf {short_name}")
+    
+    # Verbinden mit Pipe |
+    subject = " | ".join(subject_actions)
+    
+    # Fallback falls leer (sollte nicht passieren) oder zu lang
+    if not subject:
+        subject = "🚨 Handlungsbedarf erkannt"
 
+    # --- HTML BODY ---
     html_body = """
     <div style="font-family: Helvetica, Arial, sans-serif; color: #333;">
-        <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">⚡ Handlungsbedarf erkannt</h2>
+        <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">⚡ Handlungsbedarf</h2>
     """
     
     for idee in relevant_for_mail:
         score = idee.vertrauen * 100 if idee.vertrauen <= 1 else idee.vertrauen
         sig = idee.signal.upper()
         
-        # Design
         if "VERKAUF" in sig:
             color = "#d32f2f" # Rot
             bg = "#ffebee"
-            icon = "📉 VERKAUFEN?"
-        else: # Kauf / Nachkauf
+            icon = "📉 VERKAUF"
+        else: 
             color = "#2e7d32" # Grün
             bg = "#e8f5e9"
-            icon = "📈 KAUFEN!"
+            icon = "📈 KAUF"
 
-        # Badge
         badge = ""
         if idee.betrifft_portfolio:
             badge = f'<span style="background-color:#333; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">PORTFOLIO</span>'
