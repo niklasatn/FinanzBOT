@@ -21,11 +21,15 @@ USER_PORTFOLIO = os.getenv(CONFIG.get("portfolio_env"), "Kein Portfolio")
 STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 4
 
-# ===== MODELDEFINITION (NEU: MIT SIGNAL) =====
+# --- FILTER EINSTELLUNGEN ---
+MIN_CONF_PORTFOLIO = 70   # Portfolio-News ab 70%
+MIN_CONF_NEW_GEM = 90     # Neue "Super-Chancen" erst ab 90%
+
+# ===== MODELDEFINITION =====
 class IdeaItem(BaseModel):
     name: str
     typ: str
-    signal: str  # 'KAUFCHANCE', 'VERKAUF PRÜFEN', etc.
+    signal: str
     begruendung: str
     vertrauen: float
     betrifft_portfolio: bool
@@ -98,7 +102,7 @@ def relevance_score(item: dict) -> int:
 
 # ===== GEMINI ANALYSE =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
-    print(f"🧠 Analysiere {len(news_items)} News für Portfolio: {USER_PORTFOLIO[:20]}...")
+    print(f"🧠 Analysiere {len(news_items)} News...")
     
     bullets = []
     for n in news_items:
@@ -116,7 +120,6 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 
     for model_name in models_to_try:
         try:
-            print(f"🤖 Modell: {model_name}")
             model = genai.GenerativeModel(model_name)
             resp = model.generate_content(full_prompt)
             raw_response = resp.text.replace("```json", "").replace("```", "").strip()
@@ -126,7 +129,7 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     
     return IdeaOutput(ideen=[])
 
-# ===== E-MAIL SENDEN (AMPEL-DESIGN) =====
+# ===== E-MAIL SENDEN =====
 def send_email(subject: str, html_content: str):
     if not EMAIL_USER or not EMAIL_RECIPIENT_RAW: return
     recipients = [e.strip() for e in EMAIL_RECIPIENT_RAW.split(",") if e.strip()]
@@ -152,7 +155,7 @@ def main():
     if not CONFIG.get("sources"): return
     src_config = CONFIG["sources"][0]
     
-    news = fetch_news_rss(src_config["url"], src_config.get("limit", 25))
+    news = fetch_news_rss(src_config["url"], src_config.get("limit", 30))
     news = [n for n in news if is_recent(n) and relevance_score(n) >= 1]
     
     last_ids = load_last_ids()
@@ -166,6 +169,7 @@ def main():
         save_last_ids(last_ids.union(current_ids))
         return
 
+    # KI Analyse
     ai_result = analyze_with_gemini(final_news[:12])
     
     if not ai_result.ideen:
@@ -173,51 +177,70 @@ def main():
         save_last_ids(last_ids.union(new_ids))
         return
 
-    # --- E-MAIL DESIGN ---
+    # ===== INTELLIGENTE FILTERUNG =====
+    relevant_for_mail = []
+
+    for idee in ai_result.ideen:
+        score = idee.vertrauen
+        
+        # 1. Fall: Portfolio-relevant UND > 70%
+        if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
+            relevant_for_mail.append(idee)
+            
+        # 2. Fall: NICHT im Portfolio, aber KAUF-Signal UND > 90%
+        elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
+            # Wir wollen nur Kaufempfehlungen für neue Sachen, keine Verkaufsratschläge für Dinge die wir nicht haben
+            if "KAUF" in idee.signal.upper() or "NACHKAUFEN" in idee.signal.upper():
+                relevant_for_mail.append(idee)
+
+    if not relevant_for_mail:
+        print(f"📉 Nichts erfüllt die Kriterien (Portfolio >{MIN_CONF_PORTFOLIO}% oder Top-Chance >{MIN_CONF_NEW_GEM}%).")
+        save_last_ids(last_ids.union(current_ids))
+        return
+
+    # --- E-MAIL ZUSAMMENBAUEN ---
+    
+    # Betreff dynamisch generieren
+    has_portfolio_alarm = any(i.betrifft_portfolio for i in relevant_for_mail)
+    has_new_gem = any(not i.betrifft_portfolio for i in relevant_for_mail)
+    
+    subject_parts = []
+    if has_portfolio_alarm: subject_parts.append("🚨 HANDLUNG")
+    if has_new_gem: subject_parts.append("💎 NEUE CHANCE")
+    
+    subject = f"{' & '.join(subject_parts)}: {len(relevant_for_mail)} Signale vom FinanzBot"
+
     html_body = """
     <div style="font-family: Helvetica, Arial, sans-serif; color: #333;">
-        <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">🤖 Portfolio Wächter</h2>
+        <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">🤖 FinanzBot Report</h2>
     """
     
-    urgent_count = 0
-    
-    for idee in ai_result.ideen:
+    for idee in relevant_for_mail:
         score = idee.vertrauen * 100 if idee.vertrauen <= 1 else idee.vertrauen
-        
-        # Design Logik basierend auf Signal
         sig = idee.signal.upper()
         
-        if "VERKAUF" in sig:
-            # ROT: Warnung
-            color = "#d32f2f"
-            bg = "#ffebee"
-            icon = "⚠️ WARNUNG"
-            urgent_count += 1
-        elif "KAUF" in sig or "NACHKAUFEN" in sig:
-            # GRÜN: Chance
-            color = "#2e7d32"
-            bg = "#e8f5e9"
-            icon = "💰 CHANCE"
-        elif idee.betrifft_portfolio:
-            # LILA: Portfolio Info (Neutral)
-            color = "#7b1fa2"
-            bg = "#f3e5f5"
-            icon = "ℹ️ INFO"
-        else:
-            # GRAU: Watchlist / Allgemein
-            color = "#616161"
-            bg = "#f5f5f5"
-            icon = "👀 BEOBACHTEN"
-
-        # Portfolio Badge
-        portfolio_badge = ""
+        # Design-Wahl
         if idee.betrifft_portfolio:
-            portfolio_badge = f'<span style="background-color:{color}; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">MEIN PORTFOLIO</span>'
+            if "VERKAUF" in sig:
+                color = "#d32f2f" # Rot
+                bg = "#ffebee"
+                icon = "⚠️ VERKAUF PRÜFEN"
+            else:
+                color = "#2e7d32" # Grün
+                bg = "#e8f5e9"
+                icon = "💰 NACHKAUFEN?"
+            badge = f'<span style="background-color:{color}; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">MEIN PORTFOLIO</span>'
+        else:
+            # Neue Chance (immer Grün, da wir nur Kauf filtern)
+            color = "#00695c" # Dunkles Teal
+            bg = "#e0f2f1"
+            icon = "💎 TOP GELEGENHEIT"
+            badge = f'<span style="background-color:#004d40; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">NEU</span>'
 
         html_body += f"""
         <div style="margin-bottom: 15px; border-left: 6px solid {color}; background-color: {bg}; padding: 15px; border-radius: 4px;">
             <div style="color: {color}; font-weight: bold; font-size: 0.9em; margin-bottom: 5px;">
-                {icon}: {sig} {portfolio_badge}
+                {icon} {badge}
             </div>
             <h3 style="margin: 0; font-size: 1.2em;">{idee.name}</h3>
             <div style="font-size: 0.85em; color: #666; margin-bottom: 8px;">{idee.typ} • Konfidenz: {score:.0f}%</div>
@@ -227,14 +250,9 @@ def main():
 
     html_body += f"""
         <hr style="border: 0; border-top: 1px solid #eee; margin-top: 20px;">
-        <p style="font-size: 0.8em; color: #999;">Generiert am {datetime.now().strftime('%d.%m.%Y %H:%M')} | Hinweis: Keine Anlageberatung, KI-generiert.</p>
+        <p style="font-size: 0.8em; color: #999;">Generiert am {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
     </div>
     """
-
-    subj_emoji = "🚨" if urgent_count > 0 else "📈"
-    subject = f"{subj_emoji} FinanzBot: {len(ai_result.ideen)} Signale"
-    if urgent_count > 0:
-        subject += f" ({urgent_count} Handlungsbedarf!)"
 
     send_email(subject, html_body)
     save_last_ids(last_ids.union(new_ids))
