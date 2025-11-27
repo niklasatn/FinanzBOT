@@ -2,6 +2,7 @@ import os, json, requests, time, re
 import feedparser
 import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo # Wichtig für Berlin-Zeit
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
@@ -104,9 +105,9 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 
 # ===== HTML GENERATOR =====
 def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
-    now_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+    # Zeitzone Berlin setzen
+    now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
-    # CSS Styles (Dark Mode)
     css = """
     <style>
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
@@ -135,7 +136,7 @@ def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
         
         .portfolio-tag { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; letter-spacing: 0.5px; }
         
-        footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; }
+        footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
     """
 
@@ -151,11 +152,10 @@ def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
     <div class="container">
         <header>
             <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: {now_str}</div>
+            <div class="timestamp">Stand: {now_str} (Berlin)</div>
         </header>
     """
 
-    # Status Bereich
     if not items:
         html += """
         <div class="status-card">
@@ -171,13 +171,11 @@ def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
         </div>
         """
 
-    # Karten generieren
     if items:
         for i in items:
             score = i.vertrauen * 100 if i.vertrauen <= 1 else i.vertrauen
             sig_upper = i.signal.upper()
             
-            # Farbe bestimmen
             if "VERKAUF" in sig_upper:
                 badge_class = "bg-red"
                 icon = "📉"
@@ -211,16 +209,16 @@ def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
             </div>
             """
 
+    # HIER DEIN NEUER FOOTER
     html += """
         <footer>
-            Automated by GitHub Actions & Gemini AI
+            &copy; 2025 All rights to NiklasATN
         </footer>
     </div>
 </body>
 </html>
     """
 
-    # Datei schreiben
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(html)
     print("✅ Dashboard (index.html) aktualisiert.")
@@ -230,7 +228,6 @@ def main():
     if not CONFIG.get("sources"): return
     src = CONFIG["sources"][0]
     
-    # 1. News holen
     news = fetch_news_rss(src["url"], src.get("limit", 30))
     news = [n for n in news if is_recent(n) and relevance_score(n) >= 1]
     
@@ -239,16 +236,11 @@ def main():
     new_ids = current_ids - last_ids
     final_news = [n for n in news if n["url"] in new_ids]
     
-    # Wenn KEINE News da sind -> Dashboard auf "Ruhig" setzen (aber mit aktuellem Zeitstempel)
     if not final_news:
         print("🔄 Keine neuen News. Setze Dashboard auf Status 'Ruhig'.")
         generate_dashboard(items=None)
-        # IDs nicht speichern, da wir nichts verarbeitet haben? 
-        # Doch, speichern, damit wir nicht bei jedem Lauf "keine News" loggen müssen, 
-        # aber hier irrelevant da Dashboard eh überschrieben wird.
         return
 
-    # 2. KI Analyse
     ai_result = analyze_with_gemini(final_news[:12])
     if not ai_result.ideen:
         print("🤷 KI hat nichts gefunden. Dashboard auf 'Ruhig'.")
@@ -256,21 +248,17 @@ def main():
         save_last_ids(last_ids.union(current_ids))
         return
 
-    # 3. Filtern (Deine Regeln)
     relevant_items = []
     for idee in ai_result.ideen:
         score = idee.vertrauen
         sig = idee.signal.upper()
         is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
 
-        # Regel 1: Portfolio >= 70% + Action
         if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO and is_action:
             relevant_items.append(idee)
-        # Regel 2: Neu >= 90% + Kauf
         elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM and ("KAUF" in sig or "NACHKAUFEN" in sig):
             relevant_items.append(idee)
 
-    # 4. Dashboard schreiben
     if relevant_items:
         print(f"🚀 {len(relevant_items)} Signale für Dashboard gefunden.")
         generate_dashboard(items=relevant_items)
