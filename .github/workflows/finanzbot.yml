@@ -1,12 +1,10 @@
-name: Finanzbot
+name: Finanzbot Dashboard
 
 on:
   schedule:
-    # Alle 10 Minuten
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
-# WICHTIG: Erlaubt dem Bot, Änderungen (die last_sent.json) ins Repo zu schreiben
 permissions:
   contents: write
 
@@ -14,36 +12,32 @@ jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: 📦 Repository auschecken
+      - name: 📦 Checkout
         uses: actions/checkout@v4
         
-      - name: 🐍 Python einrichten
+      - name: 🐍 Python Setup
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           
-      - name: 🛠️ Abhängigkeiten installieren
+      - name: 🛠️ Install Deps
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: 🤖 Finanzbot ausführen
+      - name: 🤖 Bot Run (Generate HTML)
         run: python finanzbot.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
           USER_PORTFOLIO: ${{ secrets.USER_PORTFOLIO }}
 
-      # NEU: Gedächtnis speichern!
-      - name: 💾 Zustand sichern (Commit & Push)
+      - name: 💾 Update Dashboard (Commit & Push)
         run: |
-          git config --global user.name "FinanzBot Action"
-          git config --global user.email "action@github.com"
+          git config --global user.name "FinanzBot"
+          git config --global user.email "bot@action.github"
           
-          # Prüfen ob sich die Datei geändert hat
-          git add last_sent.json
+          # HTML und JSON hinzufügen
+          git add index.html last_sent.json
           
-          # Nur committen, wenn es wirklich Änderungen gab
-          git diff-index --quiet HEAD || (git commit -m "🤖 Bot: Gelesene News aktualisiert" && git push)
+          # Committen falls Änderungen da sind
+          git diff-index --quiet HEAD || (git commit -m "📊 Dashboard Update" && git push)
