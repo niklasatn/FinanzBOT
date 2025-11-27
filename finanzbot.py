@@ -43,8 +43,7 @@ PORTFOLIO_MAPPING = {
     "Bitcoin": "BTC-EUR"
 }
 
-# ===== LOGO MAPPING (DOMAINS) =====
-# Präzise Domains für die Google Favicon API
+# ===== LOGO MAPPING =====
 LOGO_DOMAINS = {
     "iShares MSCI World": "blackrock.com",
     "Vanguard FTSE All-World": "vanguardinvestor.co.uk",
@@ -154,21 +153,19 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph erstellen
-            fig, ax = plt.subplots(figsize=(3.5, 1.2)) # Etwas breiter/höher
+            # Graph Optimierung
+            fig, ax = plt.subplots(figsize=(3.5, 1.3)) # Etwas höher
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2.5) # Linie etwas dicker
+            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2.5)
             
-            # WICHTIG: Ränder hinzufügen, damit Spitzen nicht abgeschnitten werden
-            ax.margins(x=0, y=0.2) 
+            # WICHTIG: Mehr Margin und Padding, damit nichts abgeschnitten wird
+            ax.margins(x=0, y=0.25) 
             ax.axis('off')
-            
-            # Tight layout mit kleinem Padding, damit nichts den Rand berührt
-            plt.tight_layout(pad=0.1)
+            plt.tight_layout(pad=1.5) # Mehr Padding zum Rand
             
             buf = io.BytesIO()
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), dpi=100)
@@ -176,7 +173,7 @@ def get_market_data() -> List[MarketData]:
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             
-            # Google Favicon API (Zuverlässiger als Clearbit)
+            # Google Favicon API
             domain = LOGO_DOMAINS.get(name, "google.com")
             logo_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=64"
             
@@ -219,9 +216,9 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 
 # ===== HTML GENERATOR =====
 def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketData] = None):
-    # Zeit ohne "Berlin" Text
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
+    # CSS
     css = """
     <style>
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
@@ -241,20 +238,28 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
         
         /* Grid Layout */
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
         
-        /* Unified Card Style */
-        .card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; transition: transform 0.2s; position: relative; overflow: hidden; }
-        .card:hover { transform: translateY(-2px); border-color: #444; }
+        /* Signal Card (Expandable) */
+        .sig-card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; cursor: pointer; transition: all 0.3s ease; position: relative; }
+        .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         
-        /* Signal Specifics */
-        .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold;}
-        .sig-body { font-size: 0.85rem; color: #ccc; line-height: 1.4; flex-grow: 1; }
+        .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.95rem; font-weight: bold; align-items: center; }
+        .sig-body { font-size: 0.85rem; color: #888; line-height: 1.5; 
+                    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; transition: color 0.3s; }
+        
+        /* Expanded State */
+        .sig-card.expanded { grid-row: span 2; border-color: #666; background: #252525; }
+        .sig-card.expanded .sig-body { -webkit-line-clamp: unset; color: #eee; }
+        .expand-hint { font-size: 0.7rem; color: #555; text-align: right; margin-top: 5px; opacity: 1; }
+        .sig-card.expanded .expand-hint { opacity: 0; }
+
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
         .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
 
-        /* Market Specifics */
+        /* Market Data */
+        .market-card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; z-index: 2; }
         .mc-info { display: flex; flex-direction: column; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
@@ -264,10 +269,8 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-red { color: #e57373; }
         
         .logo-img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
-        
-        /* Graph Styling */
         .graph-container { margin-top: auto; position: relative; height: 50px; width: 100%; overflow: hidden; }
-        .graph-img { width: 110%; height: 100%; object-fit: cover; margin-left: -5%; } /* Leichter Zoom damit es randlos wirkt */
+        .graph-img { width: 100%; height: 100%; object-fit: contain; } 
 
         footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
@@ -282,6 +285,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             document.querySelectorAll('.dynamic-change').forEach(el => {
                 el.innerText = showPercent ? el.dataset.pct : el.dataset.abs;
             });
+        }
+        function toggleCard(el) {
+            el.classList.toggle('expanded');
         }
     </script>
     """
@@ -302,22 +308,24 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         </header>
     """
 
-    # 1. STATUS
+    # 1. STATUS (Singular/Plural)
     if not items:
         html += """
         <div class="status-card">
             <div class="status-ok">✅ Alles ruhig</div>
-            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf.</p>
+            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
         </div>
         """
     else:
+        count = len(items)
+        label = "Signal" if count == 1 else "Signale"
         html += f"""
         <div class="status-card" style="border-color: #d32f2f;">
-            <div class="status-alert">🚨 {len(items)} Signale erkannt</div>
+            <div class="status-alert">🚨 {count} {label} erkannt</div>
         </div>
         """
 
-    # 2. SIGNALE
+    # 2. SIGNALE (Grid Layout + Expand)
     if items:
         html += "<h2>⚡ Handlungsbedarf (KI)</h2>"
         html += '<div class="grid-container">'
@@ -330,16 +338,15 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             else:
                 badge_class = "bg-green"; icon = "💰"
             
-            short_desc = (i.begruendung[:100] + '..') if len(i.begruendung) > 100 else i.begruendung
-
             html += f"""
-            <div class="card">
+            <div class="sig-card" onclick="toggleCard(this)">
                 <div class="sig-header">
                     <span style="color:#fff">{i.name}</span>
                     <span class="badge {badge_class}">{icon} {i.signal}</span>
                 </div>
-                <div style="font-size:0.75rem; color:#888; margin-bottom:5px;">Konfidenz: {score:.0f}%</div>
-                <div class="sig-body">{short_desc}</div>
+                <div style="font-size:0.75rem; color:#666; margin-bottom:8px;">Konfidenz: {score:.0f}%</div>
+                <div class="sig-body">{i.begruendung}</div>
+                <div class="expand-hint">▼ klick für details</div>
             </div>
             """
         html += '</div>'
@@ -361,7 +368,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             abs_str = f"{prefix}{m.change_abs:.2f} {m.currency_symbol}"
             
             html += f"""
-            <div class="card">
+            <div class="market-card">
                 <div class="mc-top">
                     <div class="mc-info">
                         <span class="mc-name">{m.name}</span>
