@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinanzBot Dashboard</title>
+    
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
+        h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
+        .timestamp { font-size: 0.9rem; color: #888; }
+        .status-card { background: #1e1e1e; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #333; margin-bottom: 30px; }
+        .status-ok { color: #4caf50; font-size: 1.2rem; font-weight: bold; }
+        .status-alert { color: #e57373; font-size: 1.2rem; font-weight: bold; }
+        
+        .card { background: #1e1e1e; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-2px); border-color: #444; }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .asset-name { font-size: 1.2rem; font-weight: 700; color: #fff; }
+        .asset-type { font-size: 0.8rem; color: #888; background: #333; padding: 2px 6px; border-radius: 4px; }
+        
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
+        .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
+        .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
+        .bg-blue { background: rgba(25, 118, 210, 0.2); color: #90caf9; border: 1px solid #1976d2; }
+        
+        .signal-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .confidence { font-size: 0.9rem; font-weight: bold; }
+        .text-desc { line-height: 1.5; color: #ccc; }
+        
+        .portfolio-tag { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; letter-spacing: 0.5px; }
+        
+        footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; }
+    </style>
+    
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
+            <div class="timestamp">Stand: 27.11.2025 11:22</div>
+        </header>
+    
+        <div class="status-card">
+            <div class="status-ok">✅ Alles ruhig</div>
+            <p style="color:#888; margin-top:10px;">Aktuell keine kritischen Signale oder relevanten News für das Portfolio.</p>
+        </div>
+        
+        <footer>
+            Automated by GitHub Actions & Gemini AI
+        </footer>
+    </div>
+</body>
+</html>
+    
