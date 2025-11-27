@@ -20,40 +20,39 @@ KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
 
 STATE_FILE = "last_sent.json"
-MAX_NEWS_AGE_HOURS = 12  # Erhöht, damit wir bei strengem Filter nicht zu oft leer ausgehen
+MAX_NEWS_AGE_HOURS = 12
 
-# Filter (Nur noch harte Signale)
-MIN_CONF_PORTFOLIO = 60   # Portfolio-Handlung ab 60%
-MIN_CONF_NEW_GEM = 85     # Neue Chancen ab 85%
+# Filter
+MIN_CONF_PORTFOLIO = 60
+MIN_CONF_NEW_GEM = 85
 
-# ===== PORTFOLIO MAPPING (TICKER) =====
-# Trade Republic / Xetra Ticker
+# ===== PORTFOLIO MAPPING =====
 PORTFOLIO_MAPPING = {
     "iShares MSCI World": "EUNL.DE",
     "Vanguard FTSE All-World": "VWCE.DE",
-    "MSCI ACWI EUR": "IUSQ.DE",      # iShares MSCI ACWI
-    "Nasdaq 100": "EQQQ.DE",         # Invesco EQQQ (Typischer Nasdaq ETF)
+    "MSCI ACWI EUR": "IUSQ.DE",
+    "Nasdaq 100": "EQQQ.DE",
     "Allianz SE": "ALV.DE",
     "Münchener Rück": "MUV2.DE",
     "BMW": "BMW.DE",
-    "Berkshire Hathaway": "BRK-B",   # US Ticker (besser für News/Daten)
-    "Realty Income": "O",            # US Ticker (Monthly Dividend Company)
-    "Carnival": "CCL",               # US Ticker (Marktführer)
+    "Berkshire Hathaway": "BRK-B",
+    "Realty Income": "O",
+    "Carnival": "CCL",
     "Snowflake": "SNOW",
-    "Highland Copper": "HIC.F",      # Frankfurt Listing
+    "Highland Copper": "HIC.F",
     "Bitcoin": "BTC-EUR"
 }
 
 # ===== LOGO MAPPING (DOMAINS) =====
-# Damit die Logos automatisch gezogen werden können
+# Präzise Domains für die Google Favicon API
 LOGO_DOMAINS = {
-    "iShares MSCI World": "ishares.com",
-    "Vanguard FTSE All-World": "vanguard.com",
-    "MSCI ACWI EUR": "ishares.com",
+    "iShares MSCI World": "blackrock.com",
+    "Vanguard FTSE All-World": "vanguardinvestor.co.uk",
+    "MSCI ACWI EUR": "blackrock.com",
     "Nasdaq 100": "invesco.com",
     "Allianz SE": "allianz.com",
     "Münchener Rück": "munichre.com",
-    "BMW": "bmw.com",
+    "BMW": "bmw.de",
     "Berkshire Hathaway": "berkshirehathaway.com",
     "Realty Income": "realtyincome.com",
     "Carnival": "carnivalcorp.com",
@@ -155,25 +154,31 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph
-            fig, ax = plt.subplots(figsize=(3, 1)) # Kleinerer Graph passend zum Grid
+            # Graph erstellen
+            fig, ax = plt.subplots(figsize=(3.5, 1.2)) # Etwas breiter/höher
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
+            
+            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2.5) # Linie etwas dicker
+            
+            # WICHTIG: Ränder hinzufügen, damit Spitzen nicht abgeschnitten werden
+            ax.margins(x=0, y=0.2) 
             ax.axis('off')
-            plt.tight_layout(pad=0)
+            
+            # Tight layout mit kleinem Padding, damit nichts den Rand berührt
+            plt.tight_layout(pad=0.1)
             
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), dpi=100)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             
-            # Logo URL bauen
+            # Google Favicon API (Zuverlässiger als Clearbit)
             domain = LOGO_DOMAINS.get(name, "google.com")
-            logo_url = f"https://logo.clearbit.com/{domain}?size=60"
+            logo_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=64"
             
             data_list.append(MarketData(
                 name=name,
@@ -214,6 +219,7 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 
 # ===== HTML GENERATOR =====
 def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketData] = None):
+    # Zeit ohne "Berlin" Text
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
     css = """
@@ -234,11 +240,11 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .status-ok { color: #4caf50; font-size: 1.1rem; font-weight: bold; }
         .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
         
-        /* Grid Layout for BOTH (Signals & Market) */
+        /* Grid Layout */
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; }
         
         /* Unified Card Style */
-        .card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; transition: transform 0.2s; }
+        .card { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box; transition: transform 0.2s; position: relative; overflow: hidden; }
         .card:hover { transform: translateY(-2px); border-color: #444; }
         
         /* Signal Specifics */
@@ -249,7 +255,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
 
         /* Market Specifics */
-        .mc-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; z-index: 2; }
         .mc-info { display: flex; flex-direction: column; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
@@ -257,8 +263,11 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
-        .logo-img { width: 32px; height: 32px; border-radius: 50%; background: #fff; object-fit: contain; padding: 2px; }
-        .graph-img { width: 100%; height: 50px; margin-top: auto; border-radius: 4px; opacity: 0.9; object-fit: cover; }
+        .logo-img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
+        
+        /* Graph Styling */
+        .graph-container { margin-top: auto; position: relative; height: 50px; width: 100%; overflow: hidden; }
+        .graph-img { width: 110%; height: 100%; object-fit: cover; margin-left: -5%; } /* Leichter Zoom damit es randlos wirkt */
 
         footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
@@ -289,7 +298,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     <div class="container">
         <header>
             <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: {now_str} (Berlin)</div>
+            <div class="timestamp">Stand: {now_str}</div>
         </header>
     """
 
@@ -298,7 +307,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         html += """
         <div class="status-card">
             <div class="status-ok">✅ Alles ruhig</div>
-            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
+            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf.</p>
         </div>
         """
     else:
@@ -308,7 +317,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         </div>
         """
 
-    # 2. SIGNALE (Grid Layout)
+    # 2. SIGNALE
     if items:
         html += "<h2>⚡ Handlungsbedarf (KI)</h2>"
         html += '<div class="grid-container">'
@@ -321,7 +330,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             else:
                 badge_class = "bg-green"; icon = "💰"
             
-            # Text kürzen für kleine Kacheln
             short_desc = (i.begruendung[:100] + '..') if len(i.begruendung) > 100 else i.begruendung
 
             html += f"""
@@ -336,7 +344,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA (Grid Layout)
+    # 3. MARKET DATA
     if market_data:
         html += """
         <h2>
@@ -366,7 +374,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                     </div>
                     <img src="{m.logo_url}" class="logo-img" onerror="this.style.display='none'">
                 </div>
-                <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
+                <div class="graph-container">
+                    <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
+                </div>
             </div>
             """
         html += '</div>'
@@ -407,15 +417,11 @@ def main():
             for idee in ai_result.ideen:
                 score = idee.vertrauen
                 sig = idee.signal.upper()
-                
-                # STRIKTER FILTER: Nur Kauf oder Verkauf. Kein Beobachten.
                 is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
 
                 if is_action:
-                    # Portfolio: Etwas niedrigere Schwelle
                     if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
                         relevant_items.append(idee)
-                    # Neu: Höhere Schwelle
                     elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
                         relevant_items.append(idee)
             
