@@ -1,31 +1,26 @@
-import os, json, requests, time, re, smtplib
+import os, json, requests, time, re
 import feedparser
 import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
-from email.message import EmailMessage
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
-# ===== KONFIGURATION LADEN =====
+# ===== KONFIGURATION =====
 with open("config.json", "r", encoding="utf-8") as f:
     CONFIG = json.load(f)
 
 KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
-
-EMAIL_USER = os.getenv(CONFIG["email_user_env"])
-EMAIL_PASSWORD = os.getenv(CONFIG["email_password_env"])
-EMAIL_RECIPIENT_RAW = os.getenv(CONFIG["email_recipient_env"])
 USER_PORTFOLIO = os.getenv(CONFIG.get("portfolio_env"), "Kein Portfolio")
 
 STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 4
 
-# --- FILTER EINSTELLUNGEN ---
-MIN_CONF_PORTFOLIO = 70   # Portfolio-News ab 70%
-MIN_CONF_NEW_GEM = 90     # Neue Chancen ab 90%
+# Filter
+MIN_CONF_PORTFOLIO = 70
+MIN_CONF_NEW_GEM = 90
 
-# ===== MODELDEFINITION =====
+# ===== MODELLE =====
 class IdeaItem(BaseModel):
     name: str
     typ: str
@@ -41,23 +36,18 @@ class IdeaOutput(BaseModel):
 def load_last_ids():
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r") as f:
-                return set(json.load(f))
-        except:
-            return set()
+            with open(STATE_FILE, "r") as f: return set(json.load(f))
+        except: return set()
     return set()
 
 def save_last_ids(ids):
-    with open(STATE_FILE, "w") as f:
-        json.dump(list(ids), f)
+    with open(STATE_FILE, "w") as f: json.dump(list(ids), f)
 
 # ===== UTILS =====
 def clean_html(raw_html: str) -> str:
     cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
-    return cleantext.strip()
+    return re.sub(cleanr, '', raw_html).strip()
 
-# ===== RSS FEED =====
 def fetch_news_rss(url: str, limit: int = 30) -> List[Dict[str, Any]]:
     print(f"📡 Lade RSS Feed: {url} ...")
     feed = feedparser.parse(url)
@@ -72,19 +62,11 @@ def fetch_news_rss(url: str, limit: int = 30) -> List[Dict[str, Any]]:
             published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
         elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
             published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), timezone.utc)
-        if not published_dt:
-            published_dt = datetime.now(timezone.utc)
+        if not published_dt: published_dt = datetime.now(timezone.utc)
 
-        collected.append({
-            "title": title,
-            "url": link,
-            "summary": summary,
-            "source": "finanzen.net",
-            "time_published": published_dt
-        })
+        collected.append({"title": title, "url": link, "summary": summary, "time_published": published_dt})
     return collected
 
-# ===== FILTER =====
 def is_recent(item: dict) -> bool:
     published = item.get("time_published")
     if not published: return True
@@ -96,177 +78,207 @@ def relevance_score(item: dict) -> int:
     score = 0
     for k in KEYWORDS:
         if k in text: score += 1
-    if "dgap-news" in text or "original-research" in text:
-        score -= 2 
+    if "dgap-news" in text or "original-research" in text: score -= 2 
     return score
 
-# ===== GEMINI ANALYSE =====
+# ===== GEMINI =====
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     print(f"🧠 Analysiere {len(news_items)} News...")
+    bullets = [f"- {n['title']}\n  {n['summary']}" for n in news_items]
     
-    bullets = []
-    for n in news_items:
-        t = n.get("title", "")
-        s = n.get("summary", "")[:250]
-        u = n.get("url", "")
-        bullets.append(f"- {t}\n  {s}\n  Quelle: {u}")
-    
-    bullet_text = "\n".join(bullets)
     prompt_intro = PROMPTS["main"].replace("{portfolio}", USER_PORTFOLIO)
-    full_prompt = (prompt_intro + "\n\n" + PROMPTS["format"] + "\n\n" + "NEWS:\n" + bullet_text)
+    full_prompt = (prompt_intro + "\n\n" + PROMPTS["format"] + "\n\nNEWS:\n" + "\n".join(bullets))
 
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    models_to_try = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-flash"]
+    models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-flash"]
 
-    for model_name in models_to_try:
+    for m in models:
         try:
-            model = genai.GenerativeModel(model_name)
+            model = genai.GenerativeModel(m)
             resp = model.generate_content(full_prompt)
-            raw_response = resp.text.replace("```json", "").replace("```", "").strip()
-            return IdeaOutput.model_validate_json(raw_response)
+            raw = resp.text.replace("```json", "").replace("```", "").strip()
+            return IdeaOutput.model_validate_json(raw)
         except Exception as e:
             if "429" in str(e): time.sleep(5)
-    
     return IdeaOutput(ideen=[])
 
-# ===== E-MAIL SENDEN =====
-def send_email(subject: str, html_content: str):
-    if not EMAIL_USER or not EMAIL_RECIPIENT_RAW: return
-    recipients = [e.strip() for e in EMAIL_RECIPIENT_RAW.split(",") if e.strip()]
+# ===== HTML GENERATOR =====
+def generate_dashboard(items: List[IdeaItem] = None, status: str = "ok"):
+    now_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+    
+    # CSS Styles (Dark Mode)
+    css = """
+    <style>
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
+        h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
+        .timestamp { font-size: 0.9rem; color: #888; }
+        .status-card { background: #1e1e1e; border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #333; margin-bottom: 30px; }
+        .status-ok { color: #4caf50; font-size: 1.2rem; font-weight: bold; }
+        .status-alert { color: #e57373; font-size: 1.2rem; font-weight: bold; }
+        
+        .card { background: #1e1e1e; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #333; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: transform 0.2s; }
+        .card:hover { transform: translateY(-2px); border-color: #444; }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .asset-name { font-size: 1.2rem; font-weight: 700; color: #fff; }
+        .asset-type { font-size: 0.8rem; color: #888; background: #333; padding: 2px 6px; border-radius: 4px; }
+        
+        .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
+        .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
+        .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
+        .bg-blue { background: rgba(25, 118, 210, 0.2); color: #90caf9; border: 1px solid #1976d2; }
+        
+        .signal-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .confidence { font-size: 0.9rem; font-weight: bold; }
+        .text-desc { line-height: 1.5; color: #ccc; }
+        
+        .portfolio-tag { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; letter-spacing: 0.5px; }
+        
+        footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; }
+    </style>
+    """
 
-    msg = EmailMessage()
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_USER
-    msg['To'] = ", ".join(recipients)
-    msg.set_content("Kein HTML.") 
-    msg.add_alternative(html_content, subtype='html')
+    html = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinanzBot Dashboard</title>
+    {css}
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
+            <div class="timestamp">Stand: {now_str}</div>
+        </header>
+    """
 
-    try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
-            server.send_message(msg)
-        print(f"📧 Gesendet an {len(recipients)} Empfänger.")
-    except Exception as e:
-        print(f"❌ Mail-Fehler: {e}")
+    # Status Bereich
+    if not items:
+        html += """
+        <div class="status-card">
+            <div class="status-ok">✅ Alles ruhig</div>
+            <p style="color:#888; margin-top:10px;">Aktuell keine kritischen Signale oder relevanten News für das Portfolio.</p>
+        </div>
+        """
+    else:
+        html += f"""
+        <div class="status-card" style="border-color: #d32f2f;">
+            <div class="status-alert">🚨 {len(items)} Signale erkannt</div>
+            <p style="color:#888; margin-top:10px;">Bitte prüfe die untenstehenden Handlungsempfehlungen.</p>
+        </div>
+        """
+
+    # Karten generieren
+    if items:
+        for i in items:
+            score = i.vertrauen * 100 if i.vertrauen <= 1 else i.vertrauen
+            sig_upper = i.signal.upper()
+            
+            # Farbe bestimmen
+            if "VERKAUF" in sig_upper:
+                badge_class = "bg-red"
+                icon = "📉"
+            elif "KAUF" in sig_upper or "NACHKAUFEN" in sig_upper:
+                badge_class = "bg-green"
+                icon = "💰"
+            else:
+                badge_class = "bg-blue"
+                icon = "ℹ️"
+            
+            port_html = '<span class="portfolio-tag">MEIN PORTFOLIO</span>' if i.betrifft_portfolio else ""
+
+            html += f"""
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <span class="asset-name">{i.name}</span>
+                        {port_html}
+                    </div>
+                    <span class="asset-type">{i.typ}</span>
+                </div>
+                
+                <div class="signal-row">
+                    <span class="badge {badge_class}">{icon} {i.signal}</span>
+                    <span class="confidence" style="color: { '#ef9a9a' if score < 80 else '#a5d6a7' }">
+                        {score:.0f}% Konfidenz
+                    </span>
+                </div>
+                
+                <p class="text-desc">{i.begruendung}</p>
+            </div>
+            """
+
+    html += """
+        <footer>
+            Automated by GitHub Actions & Gemini AI
+        </footer>
+    </div>
+</body>
+</html>
+    """
+
+    # Datei schreiben
+    with open("index.html", "w", encoding="utf-8") as f:
+        f.write(html)
+    print("✅ Dashboard (index.html) aktualisiert.")
 
 # ===== MAIN =====
 def main():
     if not CONFIG.get("sources"): return
-    src_config = CONFIG["sources"][0]
+    src = CONFIG["sources"][0]
     
-    news = fetch_news_rss(src_config["url"], src_config.get("limit", 30))
+    # 1. News holen
+    news = fetch_news_rss(src["url"], src.get("limit", 30))
     news = [n for n in news if is_recent(n) and relevance_score(n) >= 1]
     
     last_ids = load_last_ids()
     current_ids = {n["url"] for n in news}
     new_ids = current_ids - last_ids
-    
     final_news = [n for n in news if n["url"] in new_ids]
     
+    # Wenn KEINE News da sind -> Dashboard auf "Ruhig" setzen (aber mit aktuellem Zeitstempel)
     if not final_news:
-        print("🔄 Keine neuen relevanten News.")
+        print("🔄 Keine neuen News. Setze Dashboard auf Status 'Ruhig'.")
+        generate_dashboard(items=None)
+        # IDs nicht speichern, da wir nichts verarbeitet haben? 
+        # Doch, speichern, damit wir nicht bei jedem Lauf "keine News" loggen müssen, 
+        # aber hier irrelevant da Dashboard eh überschrieben wird.
+        return
+
+    # 2. KI Analyse
+    ai_result = analyze_with_gemini(final_news[:12])
+    if not ai_result.ideen:
+        print("🤷 KI hat nichts gefunden. Dashboard auf 'Ruhig'.")
+        generate_dashboard(items=None)
         save_last_ids(last_ids.union(current_ids))
         return
 
-    # KI Analyse
-    ai_result = analyze_with_gemini(final_news[:12])
-    
-    if not ai_result.ideen:
-        print("🤷 KI hat keine Signale gefunden.")
-        save_last_ids(last_ids.union(new_ids))
-        return
-
-    # ===== FILTER LOGIK =====
-    relevant_for_mail = []
-
+    # 3. Filtern (Deine Regeln)
+    relevant_items = []
     for idee in ai_result.ideen:
         score = idee.vertrauen
-        sig_upper = idee.signal.upper()
-        
-        is_action_signal = ("KAUF" in sig_upper) or ("VERKAUF" in sig_upper)
-
-        # 1. Fall: Portfolio > 70% + Action
-        if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
-            if is_action_signal:
-                relevant_for_mail.append(idee)
-            
-        # 2. Fall: Neu > 90% + Kauf
-        elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
-            if "KAUF" in sig_upper or "NACHKAUFEN" in sig_upper:
-                relevant_for_mail.append(idee)
-
-    if not relevant_for_mail:
-        print(f"📉 Keine Signale mit Handlungsbedarf.")
-        save_last_ids(last_ids.union(current_ids))
-        return
-
-    # --- BETREFF GENERIEREN (NEU) ---
-    subject_actions = []
-    
-    for item in relevant_for_mail:
-        # Namen bereinigen: "NVIDIA Corp. (NVDA)" -> "NVIDIA Corp."
-        short_name = item.name.split("(")[0].strip()
-        # Falls immer noch sehr lang, kürzen
-        if len(short_name) > 15:
-            short_name = short_name[:12] + ".."
-            
-        if "VERKAUF" in item.signal.upper():
-            subject_actions.append(f"⚠️ Verkauf {short_name}")
-        else:
-            subject_actions.append(f"💰 Kauf {short_name}")
-    
-    # Verbinden mit Pipe |
-    subject = " | ".join(subject_actions)
-    
-    # Fallback falls leer (sollte nicht passieren) oder zu lang
-    if not subject:
-        subject = "🚨 Handlungsbedarf erkannt"
-
-    # --- HTML BODY ---
-    html_body = """
-    <div style="font-family: Helvetica, Arial, sans-serif; color: #333;">
-        <h2 style="border-bottom: 2px solid #333; padding-bottom: 10px;">⚡ Handlungsbedarf</h2>
-    """
-    
-    for idee in relevant_for_mail:
-        score = idee.vertrauen * 100 if idee.vertrauen <= 1 else idee.vertrauen
         sig = idee.signal.upper()
-        
-        if "VERKAUF" in sig:
-            color = "#d32f2f" # Rot
-            bg = "#ffebee"
-            icon = "📉 VERKAUF"
-        else: 
-            color = "#2e7d32" # Grün
-            bg = "#e8f5e9"
-            icon = "📈 KAUF"
+        is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
 
-        badge = ""
-        if idee.betrifft_portfolio:
-            badge = f'<span style="background-color:#333; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">PORTFOLIO</span>'
-        else:
-            badge = f'<span style="background-color:#0288d1; color:white; padding:2px 6px; border-radius:4px; font-size:0.7em; margin-left:10px;">NEU</span>'
+        # Regel 1: Portfolio >= 70% + Action
+        if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO and is_action:
+            relevant_items.append(idee)
+        # Regel 2: Neu >= 90% + Kauf
+        elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM and ("KAUF" in sig or "NACHKAUFEN" in sig):
+            relevant_items.append(idee)
 
-        html_body += f"""
-        <div style="margin-bottom: 15px; border-left: 6px solid {color}; background-color: {bg}; padding: 15px; border-radius: 4px;">
-            <div style="color: {color}; font-weight: bold; font-size: 0.9em; margin-bottom: 5px;">
-                {icon} {badge}
-            </div>
-            <h3 style="margin: 0; font-size: 1.2em;">{idee.name}</h3>
-            <div style="font-size: 0.85em; color: #666; margin-bottom: 8px;">{idee.typ} • Signal: {sig} • Konfidenz: {score:.0f}%</div>
-            <p style="margin: 0; line-height: 1.4;">{idee.begruendung}</p>
-        </div>
-        """
+    # 4. Dashboard schreiben
+    if relevant_items:
+        print(f"🚀 {len(relevant_items)} Signale für Dashboard gefunden.")
+        generate_dashboard(items=relevant_items)
+    else:
+        print("📉 News analysiert, aber keine Handlungs-Signale. Dashboard auf 'Ruhig'.")
+        generate_dashboard(items=None)
 
-    html_body += f"""
-        <hr style="border: 0; border-top: 1px solid #eee; margin-top: 20px;">
-        <p style="font-size: 0.8em; color: #999;">Generiert am {datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
-    </div>
-    """
-
-    send_email(subject, html_body)
-    save_last_ids(last_ids.union(new_ids))
+    save_last_ids(last_ids.union(current_ids))
 
 if __name__ == "__main__":
     main()
