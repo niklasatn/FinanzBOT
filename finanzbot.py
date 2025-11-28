@@ -24,7 +24,7 @@ MAX_NEWS_AGE_HOURS = 12
 
 # Filter
 MIN_CONF_PORTFOLIO = 60
-MIN_CONF_NEW_GEM = 85
+MIN_CONF_NEW_GEM = 95
 
 # ===== PORTFOLIO MAPPING =====
 PORTFOLIO_MAPPING = {
@@ -41,6 +41,23 @@ PORTFOLIO_MAPPING = {
     "Snowflake": "SNOW",
     "Highland Copper": "HIC.F",
     "Bitcoin": "BTC-EUR"
+}
+
+# ===== LOGO DOMAINS =====
+LOGO_DOMAINS = {
+    "iShares MSCI World": "ishares.com",
+    "Vanguard FTSE All-World": "vanguard.com",
+    "MSCI ACWI EUR": "ishares.com",
+    "Nasdaq 100": "invesco.com",
+    "Allianz SE": "allianz.com",
+    "Münchener Rück": "munichre.com",
+    "BMW": "bmw.com",
+    "Berkshire Hathaway": "berkshirehathaway.com",
+    "Realty Income": "realtyincome.com",
+    "Carnival": "carnivalcorp.com",
+    "Snowflake": "snowflake.com",
+    "Highland Copper": "highlandcopper.com",
+    "Bitcoin": "bitcoin.org"
 }
 
 USER_PORTFOLIO = ", ".join(PORTFOLIO_MAPPING.keys())
@@ -64,6 +81,7 @@ class MarketData(BaseModel):
     change_abs: float
     currency_symbol: str
     graph_base64: str
+    logo_url: str
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -135,31 +153,40 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph erstellen (Extrem kompakt)
-            fig, ax = plt.subplots(figsize=(3, 1)) 
-            fig.patch.set_facecolor('#1e1e1e')
+            # --- GRAPH FIX ---
+            # Wir nutzen add_axes([0,0,1,1]), um den Plot auf die GANZE Bildfläche zu zwingen
+            # Aber wir setzen Y-Limits mit Puffer, damit die Linie nicht abgeschnitten wird.
+            
+            fig = plt.figure(figsize=(3, 1.2))
+            ax = fig.add_axes([0, 0, 1, 1]) # [left, bottom, width, height] (0-1)
             ax.set_facecolor('#1e1e1e')
+            fig.patch.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            # Dynamische Limits, damit die Linie den Platz nutzt
+            # Puffer berechnen (20% oben/unten)
             y_vals = hist['Close']
             y_min, y_max = y_vals.min(), y_vals.max()
-            margin = (y_max - y_min) * 0.05 # Nur 5% Rand
-            if margin == 0: margin = 0.1
+            rng = y_max - y_min
+            if rng == 0: rng = 1 # Schutz vor Flatlines
             
-            ax.set_ylim(y_min - margin, y_max + margin)
+            # Limits manuell setzen
+            ax.set_ylim(y_min - rng * 0.2, y_max + rng * 0.2)
             ax.set_xlim(hist.index[0], hist.index[-1])
             
-            ax.plot(hist.index, y_vals, color=line_color, linewidth=2)
+            ax.plot(hist.index, y_vals, color=line_color, linewidth=2.5)
             ax.axis('off')
             
+            # Speichern OHNE bbox_inches='tight', da wir die Axes manuell gesetzt haben
             buf = io.BytesIO()
-            # pad_inches=0 entfernt ALLE weißen Ränder
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0)
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), dpi=100)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            
+            # Logo URL
+            domain = LOGO_DOMAINS.get(name, "google.com")
+            logo_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=64"
             
             data_list.append(MarketData(
                 name=name,
@@ -167,7 +194,8 @@ def get_market_data() -> List[MarketData]:
                 change_pct=change_pct,
                 change_abs=change_abs,
                 currency_symbol=currency,
-                graph_base64=img_base64
+                graph_base64=img_base64,
+                logo_url=logo_url
             ))
 
         except Exception as e:
@@ -259,6 +287,8 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .mc-change { font-size: 0.75rem; font-weight: bold; }
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
+        
+        .logo-img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
         
         /* Graph Container - Randlos */
         .graph-container { 
@@ -393,6 +423,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                             {pct_str}
                         </span>
                     </div>
+                    <img src="{m.logo_url}" class="logo-img" onerror="this.style.display='none'">
                 </div>
                 <div class="graph-container">
                     <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
@@ -403,7 +434,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 
     html += """
         <footer>
-            all rights to niklasatn | Version: Clean & Tight
+            all rights to niklasatn
         </footer>
     </div>
     """
