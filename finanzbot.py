@@ -67,7 +67,7 @@ class MarketData(BaseModel):
     graph_base64: str
     rsi: Optional[float] = None
     sma200_dist_pct: Optional[float] = None
-    drawdown_pct: Optional[float] = None
+    # Drawdown entfernt
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -150,7 +150,6 @@ def get_market_data() -> List[MarketData]:
             # 2. Langzeit (Indikatoren)
             rsi_val = None
             sma200_dist = None
-            drawdown = None
             
             try:
                 hist_long = ticker.history(period="1y")
@@ -163,34 +162,28 @@ def get_market_data() -> List[MarketData]:
                         sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
                         if not pd.isna(sma200):
                             sma200_dist = ((current - sma200) / sma200) * 100
-                    
-                    high_52 = hist_long['Close'].max()
-                    drawdown = ((current - high_52) / high_52) * 100
             except: pass
 
-            # --- GRAPH FIX (Padding & Margins) ---
-            fig, ax = plt.subplots(figsize=(3, 1.2))
+            # --- GRAPH (BACK TO BASICS - Robust) ---
+            fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
             y_vals = hist_intra['Close']
-            y_min, y_max = y_vals.min(), y_vals.max()
-            rng = y_max - y_min
-            if rng == 0: rng = 1
-            
-            # WICHTIG: Expliziter Puffer oben und unten (20% der Range)
-            buffer = rng * 0.2
-            ax.set_ylim(y_min - buffer, y_max + buffer)
-            ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
+            
+            # Sicherstellen, dass oben und unten nichts abgeschnitten wird
+            # x=0: Links/Rechts bündig
+            # y=0.1: 10% Platz oben und unten
+            ax.margins(x=0, y=0.15) 
             ax.axis('off')
             
             buf = io.BytesIO()
-            # pad_inches=0.1 erzeugt den "unsichtbaren Rand" im Bild selbst
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.1)
+            # bbox_inches='tight' + kleines Padding ist die sicherste Methode
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -203,8 +196,7 @@ def get_market_data() -> List[MarketData]:
                 currency_symbol=currency,
                 graph_base64=img_base64,
                 rsi=rsi_val,
-                sma200_dist_pct=sma200_dist,
-                drawdown_pct=drawdown
+                sma200_dist_pct=sma200_dist
             ))
 
         except Exception as e:
@@ -289,10 +281,10 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
+        
         .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
-        /* Legende Styles */
         .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
         .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
         .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
@@ -336,7 +328,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         </header>
     """
 
-    # 1. STATUS
     if not items:
         html += """
         <div class="status-card">
@@ -353,7 +344,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         </div>
         """
 
-    # 2. SIGNALE
     if items:
         html += "<h2>⚡ Handlungsbedarf (KI)</h2>"
         html += '<div class="grid-container">'
@@ -386,7 +376,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA
     if market_data:
         html += """
         <h2>
@@ -411,9 +400,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 else: sma_cls="ind-warn"; sma_txt="📉 Trend"
                 ind_html += f'<span class="ind-pill {sma_cls}">{sma_txt}</span>'
                 
-            if m.drawdown_pct is not None and m.drawdown_pct < -10:
-                ind_html += f'<span class="ind-pill ind-good">🏷️ {m.drawdown_pct:.0f}%</span>'
-            
             ind_html += '</div>'
 
             pct_str = f"{prefix}{m.change_pct:.2f}%"
@@ -440,7 +426,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
 
-    # LEGENDE (Optimiert)
     html += """
         <div class="legend-box">
             <div style="font-weight:bold; margin-bottom:15px; color:#eee;">Erklärung der Indikatoren</div>
@@ -448,30 +433,24 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 <div class="legend-item">
                     <h4>RSI (14)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß gelaufen" (Risiko)</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Chance)</li>
-                        <li>Indikator für kurzfristige Übertreibungen.</li>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Kaufchance)</li>
+                        <li>Relative Stärke Index.</li>
                     </ul>
                 </div>
                 <div class="legend-item">
                     <h4>Trend (SMA 200)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs liegt über dem Jahres-Durchschnitt.</li>
-                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs liegt darunter (Vorsicht!).</li>
-                    </ul>
-                </div>
-                <div class="legend-item">
-                    <h4>Drawdown</h4>
-                    <ul>
-                        <li><span class="ind-pill ind-good">🏷️ Rabatt</span>: Zeigt an, wie viel % das Asset vom 52-Wochen-Hoch entfernt ist.</li>
-                        <li>Je höher der Rabatt, desto günstiger (aber evtl. riskanter).</li>
+                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs > 200-Tage-Linie.</li>
+                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs < 200-Tage-Linie.</li>
+                        <li>Langfristiger Trendindikator.</li>
                     </ul>
                 </div>
             </div>
         </div>
 
         <footer>
-            all rights to niklasatn | Version: Padded Graphs
+            all rights to niklasatn
         </footer>
     </div>
     """
