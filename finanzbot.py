@@ -168,8 +168,8 @@ def get_market_data() -> List[MarketData]:
                     drawdown = ((current - high_52) / high_52) * 100
             except: pass
 
-            # --- GRAPH ---
-            fig, ax = plt.subplots(figsize=(3, 1))
+            # --- GRAPH FIX (Padding & Margins) ---
+            fig, ax = plt.subplots(figsize=(3, 1.2))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
@@ -180,16 +180,17 @@ def get_market_data() -> List[MarketData]:
             rng = y_max - y_min
             if rng == 0: rng = 1
             
-            # Limits mit Margin
-            ax.set_ylim(y_min - rng*0.2, y_max + rng*0.2)
+            # WICHTIG: Expliziter Puffer oben und unten (20% der Range)
+            buffer = rng * 0.2
+            ax.set_ylim(y_min - buffer, y_max + buffer)
             ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
             ax.axis('off')
-            plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
+            # pad_inches=0.1 erzeugt den "unsichtbaren Rand" im Bild selbst
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.1)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -258,7 +259,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         
         .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
         
-        /* Signal Card */
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 8px rgba(33, 150, 243, 0.2); }
@@ -275,7 +275,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card */
         .market-card { height: 180px; justify-content: space-between; padding-bottom: 0; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
@@ -293,12 +292,12 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
-        /* LEGENDE */
+        /* Legende Styles */
         .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
-        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 10px; }
-        .legend-item h4 { color: #ccc; margin: 0 0 5px 0; font-size: 0.9rem; }
+        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
+        .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
         .legend-item ul { list-style: none; padding: 0; margin: 0; }
-        .legend-item li { margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+        .legend-item li { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; line-height: 1.3; }
 
         footer { text-align: center; margin-top: 40px; font-size: 0.8rem; color: #555; padding-bottom: 20px;}
     </style>
@@ -441,36 +440,38 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
 
-    # LEGENDE
+    # LEGENDE (Optimiert)
     html += """
         <div class="legend-box">
-            <div style="font-weight:bold; margin-bottom:10px;">Legende & Erklärung</div>
+            <div style="font-weight:bold; margin-bottom:15px; color:#eee;">Erklärung der Indikatoren</div>
             <div class="legend-grid">
                 <div class="legend-item">
-                    <h4>RSI (Rel. Strength Index)</h4>
+                    <h4>RSI (14)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Kaufchance)</li>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß gelaufen" (Risiko)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Chance)</li>
+                        <li>Indikator für kurzfristige Übertreibungen.</li>
                     </ul>
                 </div>
                 <div class="legend-item">
                     <h4>Trend (SMA 200)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs über 200-Tage-Linie</li>
-                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs unter 200-Tage-Linie</li>
+                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs liegt über dem Jahres-Durchschnitt.</li>
+                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs liegt darunter (Vorsicht!).</li>
                     </ul>
                 </div>
                 <div class="legend-item">
                     <h4>Drawdown</h4>
                     <ul>
-                        <li><span class="ind-pill ind-good">🏷️ -XX%</span>: Aktueller Rabatt zum 52-Wochen-Hoch</li>
+                        <li><span class="ind-pill ind-good">🏷️ Rabatt</span>: Zeigt an, wie viel % das Asset vom 52-Wochen-Hoch entfernt ist.</li>
+                        <li>Je höher der Rabatt, desto günstiger (aber evtl. riskanter).</li>
                     </ul>
                 </div>
             </div>
         </div>
 
         <footer>
-            all rights to niklasatn
+            all rights to niklasatn | Version: Padded Graphs
         </footer>
     </div>
     """
