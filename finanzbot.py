@@ -6,6 +6,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import io
 import base64
+import pandas as pd
 import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -64,7 +65,10 @@ class MarketData(BaseModel):
     change_abs: float
     currency_symbol: str
     graph_base64: str
-    # LOGO URL ENTFERNT
+    # NEUE INDIKATOREN
+    rsi: float
+    sma200_dist_pct: float  # Abstand zum SMA200 in %
+    drawdown_pct: float     # Abstand zum 52W Hoch
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -115,52 +119,76 @@ def relevance_score(item: dict) -> int:
     if "dgap-news" in text or "original-research" in text: score -= 2 
     return score
 
+# ===== CALCULATIONS =====
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (ohne Logos)...")
+    print("📈 Lade Marktdaten (Langfrist-Analyse)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
         try:
             ticker = yf.Ticker(ticker_symbol)
-            hist = ticker.history(period="1d", interval="15m")
             
-            if hist.empty: continue
+            # Wir brauchen 1 Jahr Historie für SMA200 und 52W High
+            # und 1 Tag Intraday für den Graphen
+            hist_long = ticker.history(period="1y")
+            hist_intra = ticker.history(period="1d", interval="15m")
+            
+            if hist_long.empty or hist_intra.empty: continue
 
-            current = hist['Close'].iloc[-1]
-            open_price = hist['Open'].iloc[0]
-            
+            # --- AKTUELLE WERTE ---
+            current = hist_intra['Close'].iloc[-1]
+            open_price = hist_intra['Open'].iloc[0]
             change_pct = ((current - open_price) / open_price) * 100
             change_abs = current - open_price
-            
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # --- GRAPH FIX (Margin Methode) ---
+            # --- INDIKATOREN BERECHNEN ---
+            # 1. RSI (14)
+            rsi_series = calculate_rsi(hist_long['Close'])
+            rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50.0
+
+            # 2. SMA 200 (Trend)
+            sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
+            if pd.isna(sma200): sma200 = current # Fallback bei neuen Assets
+            sma200_dist = ((current - sma200) / sma200) * 100
+
+            # 3. Drawdown (Rabatt vom Hoch)
+            high_52 = hist_long['Close'].max()
+            drawdown = ((current - high_52) / high_52) * 100
+
+            # --- GRAPH (Intraday) ---
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
+            # Limits mit Margin
+            y_vals = hist_intra['Close']
+            y_min, y_max = y_vals.min(), y_vals.max()
+            rng = y_max - y_min
+            if rng == 0: rng = 1
+            ax.set_ylim(y_min - rng*0.2, y_max + rng*0.2)
+            ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
-            # WICHTIG: Interne Margins zwingen Matplotlib, Platz zu lassen.
-            # y=0.2 bedeutet 20% Puffer oben und unten.
-            ax.margins(x=0, y=0.2)
+            ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
             ax.axis('off')
-            
-            # Äußeren Rahmen entfernen
             plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            # Normales Speichern, da margins und tight_layout das Problem intern lösen
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-            
-            # KEINE LOGO LOGIK MEHR
             
             data_list.append(MarketData(
                 name=name,
@@ -168,8 +196,11 @@ def get_market_data() -> List[MarketData]:
                 change_pct=change_pct,
                 change_abs=change_abs,
                 currency_symbol=currency,
-                graph_base64=img_base64
-                # logo_url entfernt
+                graph_base64=img_base64,
+                logo_url="",
+                rsi=rsi_val,
+                sma200_dist_pct=sma200_dist,
+                drawdown_pct=drawdown
             ))
 
         except Exception as e:
@@ -210,7 +241,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         
         header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
         .timestamp { font-size: 0.9rem; color: #888; }
         
         .toggle-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
@@ -222,60 +252,49 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
         
         /* Grid Layout */
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
         
-        /* Unified Card Style */
+        /* Cards */
         .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
         
         /* Signal Card */
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
-        
-        /* Neue Chancen: Blauer Rahmen */
         .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 8px rgba(33, 150, 243, 0.2); }
-        
         .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #777; z-index: 10; }
-        
         .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold; align-items: center; }
-        
-        .sig-body { font-size: 0.85rem; color: #999; line-height: 1.4; 
-                    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .sig-body { font-size: 0.85rem; color: #999; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .sig-card.expanded .sig-body { -webkit-line-clamp: unset; overflow: visible; color: #fff; }
-        
         .expand-hint { font-size: 0.7rem; color: #555; text-align: center; margin-top: auto; padding-top: 5px; }
         .sig-card.expanded .expand-hint { display: none; }
 
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
         .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
-
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card (Clean) */
-        .market-card { height: 160px; justify-content: space-between; padding-bottom: 0; }
+        /* Market Card & Indicators */
+        .market-card { height: 180px; justify-content: space-between; padding-bottom: 0; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
         .mc-change { font-size: 0.75rem; font-weight: bold; }
+        
+        .indicator-row { display: flex; gap: 8px; margin-top: 5px; margin-bottom: 5px; font-size: 0.7rem; font-weight: bold; }
+        .ind-pill { padding: 2px 6px; border-radius: 4px; background: #333; color: #ccc; border: 1px solid #444; }
+        .ind-warn { color: #ef9a9a; border-color: #d32f2f; } /* Rot */
+        .ind-good { color: #a5d6a7; border-color: #388e3c; } /* Grün */
+        .ind-neut { color: #90caf9; border-color: #1976d2; } /* Blau */
+
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
-        /* Logo Style ENTFERNT */
-
-        /* Graph Container - Randlos */
-        .graph-container { 
-            position: absolute; 
-            bottom: 0; left: 0; right: 0; 
-            height: 70px; /* Höhe des Graphen */
-            overflow: hidden; 
-            border-bottom-left-radius: 12px;
-            border-bottom-right-radius: 12px;
-            opacity: 0.8;
-        }
+        .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
         footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
     """
@@ -290,9 +309,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 el.innerText = showPercent ? el.dataset.pct : el.dataset.abs;
             });
         }
-        function toggleCard(el) {
-            el.classList.toggle('expanded');
-        }
+        function toggleCard(el) { el.classList.toggle('expanded'); }
     </script>
     """
 
@@ -339,11 +356,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         for i in items:
             score = i.vertrauen * 100 if i.vertrauen <= 1 else i.vertrauen
             sig_upper = i.signal.upper()
-            
             badge_class = "bg-red" if "VERKAUF" in sig_upper else "bg-green"
             icon = "📉" if "VERKAUF" in sig_upper else "💰"
             
-            # Unterscheidung: Portfolio vs Neu
             if i.betrifft_portfolio:
                 tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>'
                 extra_class = ""
@@ -357,19 +372,17 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                     <span style="color:#fff">{i.name}</span>
                     <span class="badge {badge_class}">{icon} {i.signal}</span>
                 </div>
-                
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     {tag_html}
                     <div style="font-size:0.75rem; color:#666;">Konfidenz: {score:.0f}%</div>
                 </div>
-
                 <div class="sig-body">{i.begruendung}</div>
                 <div class="expand-hint">▼ klick</div>
             </div>
             """
         html += '</div>'
     
-    # 3. MARKET DATA (Clean & Full Width Graph, OHNE LOGO)
+    # 3. MARKET DATA + INDIKATOREN
     if market_data:
         html += """
         <h2>
@@ -382,6 +395,21 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
+            # Indikator Logik
+            # RSI
+            if m.rsi > 70: rsi_class = "ind-warn"; rsi_txt = f"🔥 RSI {m.rsi:.0f}"
+            elif m.rsi < 30: rsi_class = "ind-good"; rsi_txt = f"❄️ RSI {m.rsi:.0f}"
+            else: rsi_class = "ind-pill"; rsi_txt = f"RSI {m.rsi:.0f}"
+            
+            # Trend (SMA 200)
+            if m.sma200_dist_pct > 0: trend_class = "ind-good"; trend_txt = "📈 Trend"
+            else: trend_class = "ind-warn"; trend_txt = "📉 Trend"
+            
+            # Rabatt (Drawdown) - Zeigen wir nur wenn > 10%
+            dd_html = ""
+            if m.drawdown_pct < -10:
+                dd_html = f'<span class="ind-pill ind-good">🏷️ {m.drawdown_pct:.0f}% Rabatt</span>'
+
             pct_str = f"{prefix}{m.change_pct:.2f}%"
             abs_str = f"{prefix}{m.change_abs:.2f} {m.currency_symbol}"
             
@@ -396,8 +424,14 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                               data-abs="{abs_str}">
                             {pct_str}
                         </span>
+                        
+                        <div class="indicator-row">
+                            <span class="ind-pill {trend_class}">{trend_txt}</span>
+                            <span class="ind-pill {rsi_class}">{rsi_txt}</span>
+                            {dd_html}
+                        </div>
                     </div>
-                    </div>
+                </div>
                 <div class="graph-container">
                     <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
                 </div>
@@ -407,7 +441,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 
     html += """
         <footer>
-            all rights to niklasatn
+            all rights to niklasatn | Version: Pro Indicators
         </footer>
     </div>
     """
@@ -444,10 +478,8 @@ def main():
                 is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
 
                 if is_action:
-                    # Regel 1: Portfolio >= 60%
                     if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
                         relevant_items.append(idee)
-                    # Regel 2: Neu >= 95% (Sehr streng)
                     elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
                         relevant_items.append(idee)
             
