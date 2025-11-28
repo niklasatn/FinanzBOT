@@ -22,9 +22,9 @@ PROMPTS = CONFIG["prompts"]
 STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 12
 
-# Filter
-MIN_CONF_PORTFOLIO = 60
-MIN_CONF_NEW_GEM = 85
+# --- FILTER EINSTELLUNGEN ---
+MIN_CONF_PORTFOLIO = 60   # Portfolio-Handlung ab 60%
+MIN_CONF_NEW_GEM = 95     # Neue Chancen NUR ab 95% (Sehr streng)
 
 # ===== PORTFOLIO MAPPING =====
 PORTFOLIO_MAPPING = {
@@ -41,23 +41,6 @@ PORTFOLIO_MAPPING = {
     "Snowflake": "SNOW",
     "Highland Copper": "HIC.F",
     "Bitcoin": "BTC-EUR"
-}
-
-# ===== LOGO DOMAINS (Optimiert) =====
-LOGO_DOMAINS = {
-    "iShares MSCI World": "ishares.com",
-    "Vanguard FTSE All-World": "vanguard.com",
-    "MSCI ACWI EUR": "ishares.com",
-    "Nasdaq 100": "invesco.com",
-    "Allianz SE": "allianz.com",
-    "Münchener Rück": "munichre.com",
-    "BMW": "bmw.com",
-    "Berkshire Hathaway": "berkshirehathaway.com",
-    "Realty Income": "realtyincome.com",
-    "Carnival": "carnivalcorp.com",
-    "Snowflake": "snowflake.com",
-    "Highland Copper": "highlandcopper.com",
-    "Bitcoin": "bitcoin.org"
 }
 
 USER_PORTFOLIO = ", ".join(PORTFOLIO_MAPPING.keys())
@@ -81,7 +64,6 @@ class MarketData(BaseModel):
     change_abs: float
     currency_symbol: str
     graph_base64: str
-    logo_url: str
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -134,7 +116,7 @@ def relevance_score(item: dict) -> int:
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten...")
+    print("📈 Lade Marktdaten (ohne Logos)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -153,34 +135,29 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph erstellen (Optimiert gegen Abschneiden)
+            # Graph
             fig, ax = plt.subplots(figsize=(3, 1.2))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            # Min/Max berechnen für Limits mit Puffer
-            y_min, y_max = hist['Close'].min(), hist['Close'].max()
-            y_range = y_max - y_min
-            if y_range == 0: y_range = 1
+            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
             
-            ax.set_ylim(y_min - (y_range * 0.1), y_max + (y_range * 0.1)) # 10% Puffer oben/unten
+            # Puffer oben/unten
+            y_min, y_max = hist['Close'].min(), hist['Close'].max()
+            rng = y_max - y_min
+            if rng == 0: rng = 1
+            ax.set_ylim(y_min - rng*0.1, y_max + rng*0.1)
             ax.set_xlim(hist.index[0], hist.index[-1])
             
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
             ax.axis('off')
             
-            # WICHTIG: bbox_inches='tight' verhindert Abschneiden
             buf = io.BytesIO()
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-            
-            # Logo URL
-            domain = LOGO_DOMAINS.get(name, "google.com")
-            logo_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=64"
             
             data_list.append(MarketData(
                 name=name,
@@ -189,7 +166,7 @@ def get_market_data() -> List[MarketData]:
                 change_abs=change_abs,
                 currency_symbol=currency,
                 graph_base64=img_base64,
-                logo_url=logo_url
+                logo_url="" # Leer lassen
             ))
 
         except Exception as e:
@@ -244,19 +221,20 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         /* Grid Layout */
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
         
-        /* Cards Common */
+        /* Unified Card Style */
         .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
         
-        /* Signal Card (Interaktiv) */
+        /* Signal Card */
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         
-        /* Expanded State (via JS) */
-        .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #666; z-index: 10; }
+        /* Spezielle Styles für Neue Chancen */
+        .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.1); }
+        
+        .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #777; z-index: 10; }
         
         .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold; align-items: center; }
         
-        /* Text Cutoff Logic */
         .sig-body { font-size: 0.85rem; color: #999; line-height: 1.4; 
                     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
         .sig-card.expanded .sig-body { -webkit-line-clamp: unset; overflow: visible; color: #fff; }
@@ -268,19 +246,22 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
 
+        /* Tags für Unterscheidung */
+        .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
+        .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
+
         /* Market Card */
         .market-card { height: 100%; justify-content: space-between; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
-        .mc-info { display: flex; flex-direction: column; }
+        .mc-info { display: flex; flex-direction: column; width: 100%; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
         .mc-change { font-size: 0.75rem; font-weight: bold; }
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
-        .logo-img { width: 32px; height: 32px; border-radius: 50%; background: #fff; object-fit: contain; padding: 2px; }
-        
-        .graph-img { width: 100%; height: auto; border-radius: 4px; margin-top: 5px; display: block; }
+        .graph-container { margin-top: auto; position: relative; height: 50px; width: 100%; overflow: hidden; }
+        .graph-img { width: 100%; height: 100%; object-fit: contain; } 
 
         footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
@@ -346,20 +327,33 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             badge_class = "bg-red" if "VERKAUF" in sig_upper else "bg-green"
             icon = "📉" if "VERKAUF" in sig_upper else "💰"
             
+            # Logik für Tags und Styles
+            if i.betrifft_portfolio:
+                tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>'
+                card_extra_class = ""
+            else:
+                tag_html = '<span class="tag-new">💎 NEU ENTDECKT</span>'
+                card_extra_class = "card-new" # Blauer Rahmen für neue Chancen
+
             html += f"""
-            <div class="card-base sig-card" onclick="toggleCard(this)">
+            <div class="card-base sig-card {card_extra_class}" onclick="toggleCard(this)">
                 <div class="sig-header">
                     <span style="color:#fff">{i.name}</span>
                     <span class="badge {badge_class}">{icon} {i.signal}</span>
                 </div>
-                <div style="font-size:0.75rem; color:#666; margin-bottom:8px;">Konfidenz: {score:.0f}%</div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    {tag_html}
+                    <div style="font-size:0.75rem; color:#666;">Konfidenz: {score:.0f}%</div>
+                </div>
+
                 <div class="sig-body">{i.begruendung}</div>
                 <div class="expand-hint">▼ klick</div>
             </div>
             """
         html += '</div>'
     
-    # 3. MARKET DATA
+    # 3. MARKET DATA (Clean - Ohne Logos)
     if market_data:
         html += """
         <h2>
@@ -387,9 +381,10 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                             {pct_str}
                         </span>
                     </div>
-                    <img src="{m.logo_url}" class="logo-img" onerror="this.style.display='none'">
                 </div>
-                <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
+                <div class="graph-container">
+                    <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
+                </div>
             </div>
             """
         html += '</div>'
@@ -433,8 +428,10 @@ def main():
                 is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
 
                 if is_action:
+                    # Regel 1: Portfolio >= 60%
                     if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
                         relevant_items.append(idee)
+                    # Regel 2: Neu >= 95% (Sehr streng)
                     elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
                         relevant_items.append(idee)
             
