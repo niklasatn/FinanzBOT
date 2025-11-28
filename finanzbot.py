@@ -22,7 +22,7 @@ PROMPTS = CONFIG["prompts"]
 STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 12
 
-# --- FILTER EINSTELLUNGEN ---
+# Filter
 MIN_CONF_PORTFOLIO = 60   # Portfolio-Handlung ab 60%
 MIN_CONF_NEW_GEM = 95     # Neue Chancen NUR ab 95% (Sehr streng)
 
@@ -116,7 +116,7 @@ def relevance_score(item: dict) -> int:
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (ohne Logos)...")
+    print("📈 Lade Marktdaten...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -135,26 +135,26 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph
+            # Graph erstellen (Optimiert für Full-Width)
             fig, ax = plt.subplots(figsize=(3, 1.2))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
-            
-            # Puffer oben/unten
+            # Min/Max für Puffer
             y_min, y_max = hist['Close'].min(), hist['Close'].max()
             rng = y_max - y_min
             if rng == 0: rng = 1
             ax.set_ylim(y_min - rng*0.1, y_max + rng*0.1)
             ax.set_xlim(hist.index[0], hist.index[-1])
             
+            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
             ax.axis('off')
             
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
+            # pad_inches=0 ist wichtig, damit der Graph wirklich bis zum Rand geht
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -165,8 +165,7 @@ def get_market_data() -> List[MarketData]:
                 change_pct=change_pct,
                 change_abs=change_abs,
                 currency_symbol=currency,
-                graph_base64=img_base64,
-                logo_url="" # Leer lassen
+                graph_base64=img_base64
             ))
 
         except Exception as e:
@@ -228,9 +227,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         
-        /* Spezielle Styles für Neue Chancen */
-        .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 10px rgba(33, 150, 243, 0.1); }
-        
         .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #777; z-index: 10; }
         
         .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold; align-items: center; }
@@ -246,13 +242,15 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
 
-        /* Tags für Unterscheidung */
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card */
-        .market-card { height: 100%; justify-content: space-between; }
-        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
+        /* Market Card (Full Graph) */
+        .market-card { 
+            min-height: 160px; /* Feste Mindesthöhe für einheitlichen Look */
+            padding-bottom: 0; /* Platz für den Graphen unten lassen */
+        }
+        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; z-index: 2; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
@@ -260,8 +258,17 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
-        .graph-container { margin-top: auto; position: relative; height: 50px; width: 100%; overflow: hidden; }
-        .graph-img { width: 100%; height: 100%; object-fit: contain; } 
+        .graph-container { 
+            margin-top: auto; 
+            position: absolute; /* WICHTIG: Absolut positionieren */
+            bottom: 0; left: 0; right: 0;
+            height: 80px; /* Höhe des Graphen-Bereichs */
+            overflow: hidden; 
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            opacity: 0.8; /* Leicht transparent damit Text lesbar bleibt */
+        }
+        .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
         footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
     </style>
@@ -327,16 +334,13 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             badge_class = "bg-red" if "VERKAUF" in sig_upper else "bg-green"
             icon = "📉" if "VERKAUF" in sig_upper else "💰"
             
-            # Logik für Tags und Styles
             if i.betrifft_portfolio:
                 tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>'
-                card_extra_class = ""
             else:
                 tag_html = '<span class="tag-new">💎 NEU ENTDECKT</span>'
-                card_extra_class = "card-new" # Blauer Rahmen für neue Chancen
 
             html += f"""
-            <div class="card-base sig-card {card_extra_class}" onclick="toggleCard(this)">
+            <div class="card-base sig-card" onclick="toggleCard(this)">
                 <div class="sig-header">
                     <span style="color:#fff">{i.name}</span>
                     <span class="badge {badge_class}">{icon} {i.signal}</span>
@@ -353,11 +357,11 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA (Clean - Ohne Logos)
+    # 3. MARKET DATA (Full Graph)
     if market_data:
         html += """
         <h2>
-            <span>📊 Portfolio Live-Check</span>
+            <span>📊 Portfolio Tagesverlauf</span>
             <button id="toggleBtn" class="toggle-btn" onclick="toggleCurrency()">Anzeige: %</button>
         </h2>
         <div class="grid-container">
