@@ -43,23 +43,6 @@ PORTFOLIO_MAPPING = {
     "Bitcoin": "BTC-EUR"
 }
 
-# ===== LOGO DOMAINS =====
-LOGO_DOMAINS = {
-    "iShares MSCI World": "ishares.com",
-    "Vanguard FTSE All-World": "vanguard.com",
-    "MSCI ACWI EUR": "ishares.com",
-    "Nasdaq 100": "invesco.com",
-    "Allianz SE": "allianz.com",
-    "Münchener Rück": "munichre.com",
-    "BMW": "bmw.com",
-    "Berkshire Hathaway": "berkshirehathaway.com",
-    "Realty Income": "realtyincome.com",
-    "Carnival": "carnivalcorp.com",
-    "Snowflake": "snowflake.com",
-    "Highland Copper": "highlandcopper.com",
-    "Bitcoin": "bitcoin.org"
-}
-
 USER_PORTFOLIO = ", ".join(PORTFOLIO_MAPPING.keys())
 
 # ===== MODELLE =====
@@ -81,7 +64,7 @@ class MarketData(BaseModel):
     change_abs: float
     currency_symbol: str
     graph_base64: str
-    logo_url: str
+    # LOGO URL ENTFERNT
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -134,7 +117,7 @@ def relevance_score(item: dict) -> int:
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten...")
+    print("📈 Lade Marktdaten (ohne Logos)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -153,40 +136,31 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # --- GRAPH FIX ---
-            # Wir nutzen add_axes([0,0,1,1]), um den Plot auf die GANZE Bildfläche zu zwingen
-            # Aber wir setzen Y-Limits mit Puffer, damit die Linie nicht abgeschnitten wird.
-            
-            fig = plt.figure(figsize=(3, 1.2))
-            ax = fig.add_axes([0, 0, 1, 1]) # [left, bottom, width, height] (0-1)
-            ax.set_facecolor('#1e1e1e')
+            # --- GRAPH FIX (Margin Methode) ---
+            fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
+            ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            # Puffer berechnen (20% oben/unten)
-            y_vals = hist['Close']
-            y_min, y_max = y_vals.min(), y_vals.max()
-            rng = y_max - y_min
-            if rng == 0: rng = 1 # Schutz vor Flatlines
+            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
             
-            # Limits manuell setzen
-            ax.set_ylim(y_min - rng * 0.2, y_max + rng * 0.2)
-            ax.set_xlim(hist.index[0], hist.index[-1])
-            
-            ax.plot(hist.index, y_vals, color=line_color, linewidth=2.5)
+            # WICHTIG: Interne Margins zwingen Matplotlib, Platz zu lassen.
+            # y=0.2 bedeutet 20% Puffer oben und unten.
+            ax.margins(x=0, y=0.2)
             ax.axis('off')
             
-            # Speichern OHNE bbox_inches='tight', da wir die Axes manuell gesetzt haben
+            # Äußeren Rahmen entfernen
+            plt.tight_layout(pad=0)
+            
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), dpi=100)
+            # Normales Speichern, da margins und tight_layout das Problem intern lösen
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor())
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             
-            # Logo URL
-            domain = LOGO_DOMAINS.get(name, "google.com")
-            logo_url = f"https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://{domain}&size=64"
+            # KEINE LOGO LOGIK MEHR
             
             data_list.append(MarketData(
                 name=name,
@@ -194,8 +168,8 @@ def get_market_data() -> List[MarketData]:
                 change_pct=change_pct,
                 change_abs=change_abs,
                 currency_symbol=currency,
-                graph_base64=img_base64,
-                logo_url=logo_url
+                graph_base64=img_base64
+                # logo_url entfernt
             ))
 
         except Exception as e:
@@ -278,7 +252,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card */
+        /* Market Card (Clean) */
         .market-card { height: 160px; justify-content: space-between; padding-bottom: 0; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
@@ -288,8 +262,8 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
-        .logo-img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
-        
+        /* Logo Style ENTFERNT */
+
         /* Graph Container - Randlos */
         .graph-container { 
             position: absolute; 
@@ -395,7 +369,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA (Clean & Full Width Graph)
+    # 3. MARKET DATA (Clean & Full Width Graph, OHNE LOGO)
     if market_data:
         html += """
         <h2>
@@ -423,8 +397,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                             {pct_str}
                         </span>
                     </div>
-                    <img src="{m.logo_url}" class="logo-img" onerror="this.style.display='none'">
-                </div>
+                    </div>
                 <div class="graph-container">
                     <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
                 </div>
