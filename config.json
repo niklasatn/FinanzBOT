@@ -27,7 +27,7 @@
     "Krypto"
   ],
   "prompts": {
-    "main": "Du bist ein strenger Vermögensverwalter. Hier ist das Portfolio des Nutzers: '{portfolio}'.\n\nDeine Aufgabe ist der Schutz und die Vermehrung dieses Vermögens.\n1. Analysiere die News auf GEFAHREN für das Portfolio (z.B. schlechte Zahlen, Klagen, Analysten-Downgrades) -> Signal: VERKAUF PRÜFEN.\n2. Analysiere die News auf CHANCEN für das Portfolio (z.B. Rekordgewinne, Analysten-Upgrades) -> Signal: NACHKAUFEN.\n3. Suche erst danach nach neuen Ideen außerhalb des Portfolios.\n\nNews:",
+    "main": "Du bist ein strenger Vermögensverwalter. Hier ist das Portfolio: '{portfolio}'.\n\nWICHTIG: Das Portfolio gehört mehreren Personen. Ignoriere daher jegliche Kritik an Redundanzen oder Klumpenrisiken (z.B. MSCI World vs. All-World).\n\nDeine Aufgabe:\n1. Analysiere die News auf GEFAHREN für das Portfolio (z.B. schlechte Zahlen, Klagen, Analysten-Downgrades) -> Signal: VERKAUF PRÜFEN.\n2. Analysiere die News auf CHANCEN für das Portfolio (z.B. Rekordgewinne, Analysten-Upgrades) -> Signal: NACHKAUFEN.\n3. Suche erst danach nach neuen Ideen außerhalb des Portfolios.\n\nNews:",
     "format": "Antworte nur im JSON-Format mit einer Liste 'ideen'. Felder:\n- name (Asset Name)\n- typ (Aktie/ETF/Krypto)\n- signal (Wähle exakt eins: 'KAUFCHANCE', 'VERKAUF PRÜFEN', 'NEUTRAL', 'BEOBACHTEN')\n- begruendung (Kurze, harte Faktenlage. Warum droht Gefahr oder winkt Gewinn?)\n- vertrauen (0-100)\n- betrifft_portfolio (boolean: true/false)\n\nMaximal 5 Einträge. Wichtigstes zuerst!"
   },
   "portfolio_env": "USER_PORTFOLIO"
