@@ -23,8 +23,8 @@ STATE_FILE = "last_sent.json"
 MAX_NEWS_AGE_HOURS = 12
 
 # Filter
-MIN_CONF_PORTFOLIO = 60   # Portfolio-Handlung ab 60%
-MIN_CONF_NEW_GEM = 95     # Neue Chancen NUR ab 95% (Sehr streng)
+MIN_CONF_PORTFOLIO = 60
+MIN_CONF_NEW_GEM = 85
 
 # ===== PORTFOLIO MAPPING =====
 PORTFOLIO_MAPPING = {
@@ -135,25 +135,27 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # Graph erstellen (Optimiert für Full-Width)
-            fig, ax = plt.subplots(figsize=(3, 1.2))
+            # Graph erstellen (Extrem kompakt)
+            fig, ax = plt.subplots(figsize=(3, 1)) 
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            # Min/Max für Puffer
-            y_min, y_max = hist['Close'].min(), hist['Close'].max()
-            rng = y_max - y_min
-            if rng == 0: rng = 1
-            ax.set_ylim(y_min - rng*0.1, y_max + rng*0.1)
+            # Dynamische Limits, damit die Linie den Platz nutzt
+            y_vals = hist['Close']
+            y_min, y_max = y_vals.min(), y_vals.max()
+            margin = (y_max - y_min) * 0.05 # Nur 5% Rand
+            if margin == 0: margin = 0.1
+            
+            ax.set_ylim(y_min - margin, y_max + margin)
             ax.set_xlim(hist.index[0], hist.index[-1])
             
-            ax.plot(hist.index, hist['Close'], color=line_color, linewidth=2)
+            ax.plot(hist.index, y_vals, color=line_color, linewidth=2)
             ax.axis('off')
             
             buf = io.BytesIO()
-            # pad_inches=0 ist wichtig, damit der Graph wirklich bis zum Rand geht
+            # pad_inches=0 entfernt ALLE weißen Ränder
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0)
             plt.close(fig)
             buf.seek(0)
@@ -227,6 +229,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         
+        /* Neue Chancen: Blauer Rahmen */
+        .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 8px rgba(33, 150, 243, 0.2); }
+        
         .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #777; z-index: 10; }
         
         .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold; align-items: center; }
@@ -245,12 +250,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card (Full Graph) */
-        .market-card { 
-            min-height: 160px; /* Feste Mindesthöhe für einheitlichen Look */
-            padding-bottom: 0; /* Platz für den Graphen unten lassen */
-        }
-        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; z-index: 2; }
+        /* Market Card */
+        .market-card { height: 160px; justify-content: space-between; padding-bottom: 0; }
+        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
@@ -258,15 +260,15 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         
+        /* Graph Container - Randlos */
         .graph-container { 
-            margin-top: auto; 
-            position: absolute; /* WICHTIG: Absolut positionieren */
-            bottom: 0; left: 0; right: 0;
-            height: 80px; /* Höhe des Graphen-Bereichs */
+            position: absolute; 
+            bottom: 0; left: 0; right: 0; 
+            height: 70px; /* Höhe des Graphen */
             overflow: hidden; 
             border-bottom-left-radius: 12px;
             border-bottom-right-radius: 12px;
-            opacity: 0.8; /* Leicht transparent damit Text lesbar bleibt */
+            opacity: 0.8;
         }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
@@ -294,6 +296,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FinanzBot Dashboard</title>
     {css}
@@ -334,13 +339,16 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             badge_class = "bg-red" if "VERKAUF" in sig_upper else "bg-green"
             icon = "📉" if "VERKAUF" in sig_upper else "💰"
             
+            # Unterscheidung: Portfolio vs Neu
             if i.betrifft_portfolio:
                 tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>'
+                extra_class = ""
             else:
                 tag_html = '<span class="tag-new">💎 NEU ENTDECKT</span>'
+                extra_class = "card-new"
 
             html += f"""
-            <div class="card-base sig-card" onclick="toggleCard(this)">
+            <div class="card-base sig-card {extra_class}" onclick="toggleCard(this)">
                 <div class="sig-header">
                     <span style="color:#fff">{i.name}</span>
                     <span class="badge {badge_class}">{icon} {i.signal}</span>
@@ -357,7 +365,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA (Full Graph)
+    # 3. MARKET DATA (Clean & Full Width Graph)
     if market_data:
         html += """
         <h2>
@@ -395,7 +403,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 
     html += """
         <footer>
-            all rights to niklasatn
+            all rights to niklasatn | Version: Clean & Tight
         </footer>
     </div>
     """
