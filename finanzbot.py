@@ -11,7 +11,7 @@ import google.generativeai as genai
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # ===== KONFIGURATION =====
 with open("config.json", "r", encoding="utf-8") as f:
@@ -65,10 +65,9 @@ class MarketData(BaseModel):
     change_abs: float
     currency_symbol: str
     graph_base64: str
-    # NEUE INDIKATOREN
-    rsi: float
-    sma200_dist_pct: float  # Abstand zum SMA200 in %
-    drawdown_pct: float     # Abstand zum 52W Hoch
+    rsi: Optional[float] = None
+    sma200_dist_pct: Optional[float] = None
+    drawdown_pct: Optional[float] = None
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -121,6 +120,7 @@ def relevance_score(item: dict) -> int:
 
 # ===== CALCULATIONS =====
 def calculate_rsi(series, period=14):
+    if len(series) < period: return None
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -129,21 +129,17 @@ def calculate_rsi(series, period=14):
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (Langfrist-Analyse)...")
+    print("📈 Lade Marktdaten (Robust Mode)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
         try:
             ticker = yf.Ticker(ticker_symbol)
             
-            # Wir brauchen 1 Jahr Historie für SMA200 und 52W High
-            # und 1 Tag Intraday für den Graphen
-            hist_long = ticker.history(period="1y")
+            # 1. Intraday
             hist_intra = ticker.history(period="1d", interval="15m")
-            
-            if hist_long.empty or hist_intra.empty: continue
+            if hist_intra.empty: continue
 
-            # --- AKTUELLE WERTE ---
             current = hist_intra['Close'].iloc[-1]
             open_price = hist_intra['Open'].iloc[0]
             change_pct = ((current - open_price) / open_price) * 100
@@ -151,32 +147,40 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # --- INDIKATOREN BERECHNEN ---
-            # 1. RSI (14)
-            rsi_series = calculate_rsi(hist_long['Close'])
-            rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50.0
+            # 2. Langzeit (Indikatoren)
+            rsi_val = None
+            sma200_dist = None
+            drawdown = None
+            
+            try:
+                hist_long = ticker.history(period="1y")
+                if not hist_long.empty and len(hist_long) > 50:
+                    rsi_series = calculate_rsi(hist_long['Close'])
+                    if rsi_series is not None and not pd.isna(rsi_series.iloc[-1]):
+                        rsi_val = rsi_series.iloc[-1]
 
-            # 2. SMA 200 (Trend)
-            sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
-            if pd.isna(sma200): sma200 = current # Fallback bei neuen Assets
-            sma200_dist = ((current - sma200) / sma200) * 100
+                    if len(hist_long) >= 200:
+                        sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
+                        if not pd.isna(sma200):
+                            sma200_dist = ((current - sma200) / sma200) * 100
+                    
+                    high_52 = hist_long['Close'].max()
+                    drawdown = ((current - high_52) / high_52) * 100
+            except: pass
 
-            # 3. Drawdown (Rabatt vom Hoch)
-            high_52 = hist_long['Close'].max()
-            drawdown = ((current - high_52) / high_52) * 100
-
-            # --- GRAPH (Intraday) ---
+            # --- GRAPH ---
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
-            # Limits mit Margin
             y_vals = hist_intra['Close']
             y_min, y_max = y_vals.min(), y_vals.max()
             rng = y_max - y_min
             if rng == 0: rng = 1
+            
+            # Limits mit Margin
             ax.set_ylim(y_min - rng*0.2, y_max + rng*0.2)
             ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
@@ -197,7 +201,6 @@ def get_market_data() -> List[MarketData]:
                 change_abs=change_abs,
                 currency_symbol=currency,
                 graph_base64=img_base64,
-                logo_url="",
                 rsi=rsi_val,
                 sma200_dist_pct=sma200_dist,
                 drawdown_pct=drawdown
@@ -241,20 +244,18 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         
         header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
+        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
         .timestamp { font-size: 0.9rem; color: #888; }
         
         .toggle-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
         .toggle-btn:hover { background: #444; }
 
-        /* Status */
         .status-card { background: #1e1e1e; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; margin-bottom: 20px; }
         .status-ok { color: #4caf50; font-size: 1.1rem; font-weight: bold; }
         .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
         
-        /* Grid Layout */
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
         
-        /* Cards */
         .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
         
         /* Signal Card */
@@ -274,7 +275,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
 
-        /* Market Card & Indicators */
+        /* Market Card */
         .market-card { height: 180px; justify-content: space-between; padding-bottom: 0; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
@@ -282,20 +283,24 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
         .mc-change { font-size: 0.75rem; font-weight: bold; }
         
-        .indicator-row { display: flex; gap: 8px; margin-top: 5px; margin-bottom: 5px; font-size: 0.7rem; font-weight: bold; }
+        .indicator-row { display: flex; gap: 8px; margin-top: 5px; margin-bottom: 5px; font-size: 0.7rem; font-weight: bold; flex-wrap: wrap; }
         .ind-pill { padding: 2px 6px; border-radius: 4px; background: #333; color: #ccc; border: 1px solid #444; }
-        .ind-warn { color: #ef9a9a; border-color: #d32f2f; } /* Rot */
-        .ind-good { color: #a5d6a7; border-color: #388e3c; } /* Grün */
-        .ind-neut { color: #90caf9; border-color: #1976d2; } /* Blau */
-
+        .ind-warn { color: #ef9a9a; border-color: #d32f2f; }
+        .ind-good { color: #a5d6a7; border-color: #388e3c; }
+        
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
-        
         .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
-        footer { text-align: center; margin-top: 50px; font-size: 0.8rem; color: #555; border-top: 1px solid #333; padding-top: 20px;}
+        /* LEGENDE */
+        .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
+        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 10px; }
+        .legend-item h4 { color: #ccc; margin: 0 0 5px 0; font-size: 0.9rem; }
+        .legend-item ul { list-style: none; padding: 0; margin: 0; }
+        .legend-item li { margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+
+        footer { text-align: center; margin-top: 40px; font-size: 0.8rem; color: #555; padding-bottom: 20px;}
     </style>
     """
     
@@ -382,7 +387,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
     
-    # 3. MARKET DATA + INDIKATOREN
+    # 3. MARKET DATA
     if market_data:
         html += """
         <h2>
@@ -395,20 +400,22 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
-            # Indikator Logik
-            # RSI
-            if m.rsi > 70: rsi_class = "ind-warn"; rsi_txt = f"🔥 RSI {m.rsi:.0f}"
-            elif m.rsi < 30: rsi_class = "ind-good"; rsi_txt = f"❄️ RSI {m.rsi:.0f}"
-            else: rsi_class = "ind-pill"; rsi_txt = f"RSI {m.rsi:.0f}"
+            ind_html = '<div class="indicator-row">'
+            if m.rsi is not None:
+                if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
+                elif m.rsi < 30: rsi_cls="ind-good"; rsi_ico="❄️"
+                else: rsi_cls="ind-pill"; rsi_ico=""
+                ind_html += f'<span class="ind-pill {rsi_cls}">{rsi_ico} RSI {m.rsi:.0f}</span>'
             
-            # Trend (SMA 200)
-            if m.sma200_dist_pct > 0: trend_class = "ind-good"; trend_txt = "📈 Trend"
-            else: trend_class = "ind-warn"; trend_txt = "📉 Trend"
+            if m.sma200_dist_pct is not None:
+                if m.sma200_dist_pct > 0: sma_cls="ind-good"; sma_txt="📈 Trend"
+                else: sma_cls="ind-warn"; sma_txt="📉 Trend"
+                ind_html += f'<span class="ind-pill {sma_cls}">{sma_txt}</span>'
+                
+            if m.drawdown_pct is not None and m.drawdown_pct < -10:
+                ind_html += f'<span class="ind-pill ind-good">🏷️ {m.drawdown_pct:.0f}%</span>'
             
-            # Rabatt (Drawdown) - Zeigen wir nur wenn > 10%
-            dd_html = ""
-            if m.drawdown_pct < -10:
-                dd_html = f'<span class="ind-pill ind-good">🏷️ {m.drawdown_pct:.0f}% Rabatt</span>'
+            ind_html += '</div>'
 
             pct_str = f"{prefix}{m.change_pct:.2f}%"
             abs_str = f"{prefix}{m.change_abs:.2f} {m.currency_symbol}"
@@ -424,12 +431,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                               data-abs="{abs_str}">
                             {pct_str}
                         </span>
-                        
-                        <div class="indicator-row">
-                            <span class="ind-pill {trend_class}">{trend_txt}</span>
-                            <span class="ind-pill {rsi_class}">{rsi_txt}</span>
-                            {dd_html}
-                        </div>
+                        {ind_html}
                     </div>
                 </div>
                 <div class="graph-container">
@@ -439,9 +441,36 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         html += '</div>'
 
+    # LEGENDE
     html += """
+        <div class="legend-box">
+            <div style="font-weight:bold; margin-bottom:10px;">Legende & Erklärung</div>
+            <div class="legend-grid">
+                <div class="legend-item">
+                    <h4>RSI (Rel. Strength Index)</h4>
+                    <ul>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Kaufchance)</li>
+                    </ul>
+                </div>
+                <div class="legend-item">
+                    <h4>Trend (SMA 200)</h4>
+                    <ul>
+                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs über 200-Tage-Linie</li>
+                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs unter 200-Tage-Linie</li>
+                    </ul>
+                </div>
+                <div class="legend-item">
+                    <h4>Drawdown</h4>
+                    <ul>
+                        <li><span class="ind-pill ind-good">🏷️ -XX%</span>: Aktueller Rabatt zum 52-Wochen-Hoch</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <footer>
-            all rights to niklasatn | Version: Pro Indicators
+            all rights to niklasatn
         </footer>
     </div>
     """
