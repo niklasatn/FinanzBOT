@@ -25,19 +25,17 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: 🤖 Bot Run (Generate HTML)
+      - name: 🤖 Bot Run
         run: python finanzbot.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          USER_PORTFOLIO: ${{ secrets.USER_PORTFOLIO }}
 
       - name: 💾 Update Dashboard (Commit & Push)
         run: |
           git config --global user.name "FinanzBot"
           git config --global user.email "bot@action.github"
           
-          # HTML und JSON hinzufügen
-          git add index.html last_sent.json
+          # HIER DER NEUE NAME:
+          git add dashboard_finanzbot.html last_sent.json
           
-          # Committen falls Änderungen da sind
           git diff-index --quiet HEAD || (git commit -m "📊 Dashboard Update" && git push)
