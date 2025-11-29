@@ -13,7 +13,6 @@
         
         header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
         .timestamp { font-size: 0.9rem; color: #888; }
         
         .toggle-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
@@ -59,71 +58,12 @@
         .ind-pill { padding: 2px 6px; border-radius: 4px; background: #333; color: #ccc; border: 1px solid #444; }
         .ind-warn { color: #ef9a9a; border-color: #d32f2f; }
         .ind-good { color: #a5d6a7; border-color: #388e3c; }
+        /* NEU: Gelb für Neutral */
+        .ind-mid  { color: #ffe082; border-color: #ffca28; } 
         
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
         .graph-img { width: 100%; height: 100%; object-fit: cover; } 
 
-        .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
-        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
-        .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
-        .legend-item ul { list-style: none; padding: 0; margin: 0; }
-        .legend-item li { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; line-height: 1.3; }
-
-        footer { text-align: center; margin-top: 40px; font-size: 0.8rem; color: #555; padding-bottom: 20px;}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: {{TIMESTAMP}}</div>
-        </header>
-
-        {{STATUS_SECTION}}
-
-        {{SIGNALS_SECTION}}
-    
-        {{MARKET_SECTION}}
-
-        <div class="legend-box">
-            <div style="font-weight:bold; margin-bottom:15px; color:#eee;">Erklärung der Indikatoren</div>
-            <div class="legend-grid">
-                <div class="legend-item">
-                    <h4>RSI (14)</h4>
-                    <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß gelaufen" (Risiko)</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Chance)</li>
-                        <li>Relative Stärke Index.</li>
-                    </ul>
-                </div>
-                <div class="legend-item">
-                    <h4>Trend (SMA 200)</h4>
-                    <ul>
-                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs > 200-Tage-Linie.</li>
-                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs < 200-Tage-Linie.</li>
-                        <li>Langfristiger Trendindikator.</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <footer>
-            all rights to niklasatn | Version: Separated Template
-        </footer>
-    </div>
-
-    <script>
-        let showPercent = true;
-        function toggleCurrency() {
-            showPercent = !showPercent;
-            document.getElementById('toggleBtn').innerText = showPercent ? "Anzeige: %" : "Anzeige: €/$";
-            document.querySelectorAll('.dynamic-change').forEach(el => {
-                el.innerText = showPercent ? el.dataset.pct : el.dataset.abs;
-            });
-        }
-        function toggleCard(el) { el.classList.toggle('expanded'); }
-    </script>
-</body>
-</html>
+        .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size:
