@@ -76,14 +76,39 @@
     <div class="container">
         <header>
             <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: 29.11.2025 02:08</div>
+            <div class="timestamp">Stand: 29.11.2025 03:48</div>
         </header>
     
-        <div class="status-card">
-            <div class="status-ok">✅ Alles ruhig</div>
-            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
+        <div class="status-card" style="border-color: #d32f2f;">
+            <div class="status-alert">🚨 2 Signale erkannt</div>
         </div>
-        
+        <h2>⚡ Handlungsbedarf (KI)</h2><div class="grid-container">
+            <div class="card-base sig-card " onclick="toggleCard(this)">
+                <div class="sig-header">
+                    <span style="color:#fff">Allianz SE</span>
+                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
+                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 70%</div>
+                </div>
+                <div class="sig-body">Gehörte zu den relativen Verlierern im DAX in KW 48. Die unterdurchschnittliche Performance signalisiert möglichen Verkaufsdruck oder negative Sektornachrichten. Ursache umgehend klären.</div>
+                <div class="expand-hint">▼ klick</div>
+            </div>
+            
+            <div class="card-base sig-card " onclick="toggleCard(this)">
+                <div class="sig-header">
+                    <span style="color:#fff">BMW</span>
+                    <span class="badge bg-green">💰 KAUFCHANCE</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
+                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 75%</div>
+                </div>
+                <div class="sig-body">Zählte zu den Gewinnern im DAX in KW 48. Das positive Momentum deutet auf Marktstärke hin. Position kann bei weiterer Stärke ausgebaut werden.</div>
+                <div class="expand-hint">▼ klick</div>
+            </div>
+            </div>
         <h2>
             <span>📊 Portfolio Tagesverlauf</span>
             <button id="toggleBtn" class="toggle-btn" onclick="toggleCurrency()">Anzeige: %</button>
