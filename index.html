@@ -76,26 +76,14 @@
     <div class="container">
         <header>
             <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: 29.11.2025 09:20</div>
+            <div class="timestamp">Stand: 29.11.2025 09:45</div>
         </header>
     
-        <div class="status-card" style="border-color: #d32f2f;">
-            <div class="status-alert">🚨 1 Signal erkannt</div>
+        <div class="status-card">
+            <div class="status-ok">✅ Alles ruhig</div>
+            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
         </div>
-        <h2>⚡ Handlungsbedarf (KI)</h2><div class="grid-container">
-            <div class="card-base sig-card " onclick="toggleCard(this)">
-                <div class="sig-header">
-                    <span style="color:#fff">Carnival</span>
-                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
-                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 75%</div>
-                </div>
-                <div class="sig-body">Die gehäufte Berichterstattung über Crash-Szenarien signalisiert Sorgen vor einer Rezession. Als hochzyklischer Konsumwert ist Carnival bei einem Konjunktureinbruch extrem anfällig. Das Risiko eines starken Kursverlusts ist signifikant.</div>
-                <div class="expand-hint">▼ klick</div>
-            </div>
-            </div>
+        
         <h2>
             <span>📊 Portfolio Tagesverlauf</span>
             <button id="toggleBtn" class="toggle-btn" onclick="toggleCurrency()">Anzeige: %</button>
