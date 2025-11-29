@@ -21,6 +21,7 @@ KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
 
 STATE_FILE = "last_sent.json"
+OUTPUT_FILE = "dashboard_finanzbot.html" # NEUER DATEINAME
 MAX_NEWS_AGE_HOURS = 12
 
 # Filter
@@ -67,7 +68,7 @@ class MarketData(BaseModel):
     graph_base64: str
     rsi: Optional[float] = None
     sma200_dist_pct: Optional[float] = None
-    # Drawdown entfernt
+    drawdown_pct: Optional[float] = None
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -164,7 +165,7 @@ def get_market_data() -> List[MarketData]:
                             sma200_dist = ((current - sma200) / sma200) * 100
             except: pass
 
-            # --- GRAPH (BACK TO BASICS - Robust) ---
+            # --- GRAPH ---
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
@@ -172,33 +173,28 @@ def get_market_data() -> List[MarketData]:
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             
             y_vals = hist_intra['Close']
+            y_min, y_max = y_vals.min(), y_vals.max()
+            rng = y_max - y_min
+            if rng == 0: rng = 1
+            
+            # 15% Puffer oben/unten
+            ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
+            ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
-            
-            # Sicherstellen, dass oben und unten nichts abgeschnitten wird
-            # x=0: Links/Rechts bündig
-            # y=0.1: 10% Platz oben und unten
-            ax.margins(x=0, y=0.15) 
             ax.axis('off')
+            plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            # bbox_inches='tight' + kleines Padding ist die sicherste Methode
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             
             data_list.append(MarketData(
-                name=name,
-                price_fmt=price_fmt,
-                change_pct=change_pct,
-                change_abs=change_abs,
-                currency_symbol=currency,
-                graph_base64=img_base64,
-                rsi=rsi_val,
-                sma200_dist_pct=sma200_dist
+                name=name, price_fmt=price_fmt, change_pct=change_pct, change_abs=change_abs,
+                currency_symbol=currency, graph_base64=img_base64, rsi=rsi_val, sma200_dist_pct=sma200_dist
             ))
-
         except Exception as e:
             print(f"⚠️ Fehler bei {name}: {e}")
             continue
@@ -209,7 +205,6 @@ def get_market_data() -> List[MarketData]:
 def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
     print(f"🧠 Analysiere {len(news_items)} News...")
     bullets = [f"- {n['title']}\n  {n['summary']}" for n in news_items]
-    
     prompt_intro = PROMPTS["main"].replace("{portfolio}", USER_PORTFOLIO)
     full_prompt = (prompt_intro + "\n\n" + PROMPTS["format"] + "\n\nNEWS:\n" + "\n".join(bullets))
 
@@ -230,106 +225,19 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketData] = None):
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
-    css = """
-    <style>
-        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        
-        header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
-        h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
-        h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
-        .timestamp { font-size: 0.9rem; color: #888; }
-        
-        .toggle-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
-        .toggle-btn:hover { background: #444; }
+    # 1. Template laden
+    try:
+        with open("dashboard_template.html", "r", encoding="utf-8") as f:
+            template = f.read()
+    except FileNotFoundError:
+        print("❌ dashboard_template.html nicht gefunden!")
+        return
 
-        .status-card { background: #1e1e1e; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; margin-bottom: 20px; }
-        .status-ok { color: #4caf50; font-size: 1.1rem; font-weight: bold; }
-        .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
-        
-        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
-        
-        .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
-        
-        .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
-        .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
-        .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 8px rgba(33, 150, 243, 0.2); }
-        .sig-card.expanded { grid-row: span 2; max-height: none; background: #252525; border-color: #777; z-index: 10; }
-        .sig-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; font-weight: bold; align-items: center; }
-        .sig-body { font-size: 0.85rem; color: #999; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-        .sig-card.expanded .sig-body { -webkit-line-clamp: unset; overflow: visible; color: #fff; }
-        .expand-hint { font-size: 0.7rem; color: #555; text-align: center; margin-top: auto; padding-top: 5px; }
-        .sig-card.expanded .expand-hint { display: none; }
-
-        .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
-        .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
-        .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
-        .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
-        .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
-
-        .market-card { height: 180px; justify-content: space-between; padding-bottom: 0; }
-        .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
-        .mc-info { display: flex; flex-direction: column; width: 100%; }
-        .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
-        .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
-        .mc-change { font-size: 0.75rem; font-weight: bold; }
-        
-        .indicator-row { display: flex; gap: 8px; margin-top: 5px; margin-bottom: 5px; font-size: 0.7rem; font-weight: bold; flex-wrap: wrap; }
-        .ind-pill { padding: 2px 6px; border-radius: 4px; background: #333; color: #ccc; border: 1px solid #444; }
-        .ind-warn { color: #ef9a9a; border-color: #d32f2f; }
-        .ind-good { color: #a5d6a7; border-color: #388e3c; }
-        
-        .col-green { color: #4caf50; }
-        .col-red { color: #e57373; }
-        
-        .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
-        .graph-img { width: 100%; height: 100%; object-fit: cover; } 
-
-        .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
-        .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
-        .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
-        .legend-item ul { list-style: none; padding: 0; margin: 0; }
-        .legend-item li { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; line-height: 1.3; }
-
-        footer { text-align: center; margin-top: 40px; font-size: 0.8rem; color: #555; padding-bottom: 20px;}
-    </style>
-    """
+    # 2. Sektionen bauen
     
-    js = """
-    <script>
-        let showPercent = true;
-        function toggleCurrency() {
-            showPercent = !showPercent;
-            document.getElementById('toggleBtn').innerText = showPercent ? "Anzeige: %" : "Anzeige: €/$";
-            document.querySelectorAll('.dynamic-change').forEach(el => {
-                el.innerText = showPercent ? el.dataset.pct : el.dataset.abs;
-            });
-        }
-        function toggleCard(el) { el.classList.toggle('expanded'); }
-    </script>
-    """
-
-    html = f"""<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FinanzBot Dashboard</title>
-    {css}
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: {now_str}</div>
-        </header>
-    """
-
+    # -- STATUS SECTION --
     if not items:
-        html += """
+        status_html = """
         <div class="status-card">
             <div class="status-ok">✅ Alles ruhig</div>
             <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
@@ -338,15 +246,15 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     else:
         count = len(items)
         label = "Signal" if count == 1 else "Signale"
-        html += f"""
+        status_html = f"""
         <div class="status-card" style="border-color: #d32f2f;">
             <div class="status-alert">🚨 {count} {label} erkannt</div>
         </div>
         """
 
+    # -- SIGNALS SECTION --
     if items:
-        html += "<h2>⚡ Handlungsbedarf (KI)</h2>"
-        html += '<div class="grid-container">'
+        signals_html = '<h2>⚡ Handlungsbedarf (KI)</h2><div class="grid-container">'
         for i in items:
             score = i.vertrauen * 100 if i.vertrauen <= 1 else i.vertrauen
             sig_upper = i.signal.upper()
@@ -360,7 +268,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 tag_html = '<span class="tag-new">💎 NEU ENTDECKT</span>'
                 extra_class = "card-new"
 
-            html += f"""
+            signals_html += f"""
             <div class="card-base sig-card {extra_class}" onclick="toggleCard(this)">
                 <div class="sig-header">
                     <span style="color:#fff">{i.name}</span>
@@ -374,10 +282,14 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 <div class="expand-hint">▼ klick</div>
             </div>
             """
-        html += '</div>'
-    
+        signals_html += '</div>'
+    else:
+        signals_html = ""
+
+    # -- MARKET SECTION --
+    market_html = ""
     if market_data:
-        html += """
+        market_html = """
         <h2>
             <span>📊 Portfolio Tagesverlauf</span>
             <button id="toggleBtn" class="toggle-btn" onclick="toggleCurrency()">Anzeige: %</button>
@@ -388,6 +300,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
+            # Indikatoren
             ind_html = '<div class="indicator-row">'
             if m.rsi is not None:
                 if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
@@ -399,13 +312,12 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 if m.sma200_dist_pct > 0: sma_cls="ind-good"; sma_txt="📈 Trend"
                 else: sma_cls="ind-warn"; sma_txt="📉 Trend"
                 ind_html += f'<span class="ind-pill {sma_cls}">{sma_txt}</span>'
-                
             ind_html += '</div>'
 
             pct_str = f"{prefix}{m.change_pct:.2f}%"
             abs_str = f"{prefix}{m.change_abs:.2f} {m.currency_symbol}"
             
-            html += f"""
+            market_html += f"""
             <div class="card-base market-card">
                 <div class="mc-top">
                     <div class="mc-info">
@@ -424,45 +336,17 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 </div>
             </div>
             """
-        html += '</div>'
+        market_html += '</div>'
 
-    html += """
-        <div class="legend-box">
-            <div style="font-weight:bold; margin-bottom:15px; color:#eee;">Erklärung der Indikatoren</div>
-            <div class="legend-grid">
-                <div class="legend-item">
-                    <h4>RSI (14)</h4>
-                    <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Kaufchance)</li>
-                        <li>Relative Stärke Index.</li>
-                    </ul>
-                </div>
-                <div class="legend-item">
-                    <h4>Trend (SMA 200)</h4>
-                    <ul>
-                        <li><span class="ind-pill ind-good">📈 Aufwärts</span>: Kurs > 200-Tage-Linie.</li>
-                        <li><span class="ind-pill ind-warn">📉 Abwärts</span>: Kurs < 200-Tage-Linie.</li>
-                        <li>Langfristiger Trendindikator.</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
+    # 3. Platzhalter ersetzen
+    final_html = template.replace("{{TIMESTAMP}}", now_str)
+    final_html = final_html.replace("{{STATUS_SECTION}}", status_html)
+    final_html = final_html.replace("{{SIGNALS_SECTION}}", signals_html)
+    final_html = final_html.replace("{{MARKET_SECTION}}", market_html)
 
-        <footer>
-            all rights to niklasatn
-        </footer>
-    </div>
-    """
-    html += js
-    html += """
-</body>
-</html>
-    """
-
-    with open("index.html", "w", encoding="utf-8") as f:
-        f.write(html)
-    print("✅ Dashboard aktualisiert.")
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write(final_html)
+    print(f"✅ Dashboard ({OUTPUT_FILE}) aus Template erstellt.")
 
 # ===== MAIN =====
 def main():
@@ -477,7 +361,6 @@ def main():
     final_news = [n for n in news if n["url"] in new_ids]
 
     relevant_items = []
-    
     if final_news:
         ai_result = analyze_with_gemini(final_news[:15])
         if ai_result.ideen:
@@ -485,13 +368,11 @@ def main():
                 score = idee.vertrauen
                 sig = idee.signal.upper()
                 is_action = ("KAUF" in sig) or ("VERKAUF" in sig)
-
                 if is_action:
                     if idee.betrifft_portfolio and score >= MIN_CONF_PORTFOLIO:
                         relevant_items.append(idee)
                     elif (not idee.betrifft_portfolio) and score >= MIN_CONF_NEW_GEM:
                         relevant_items.append(idee)
-            
             save_last_ids(last_ids.union(current_ids))
 
     market_data = get_market_data()
