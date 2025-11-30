@@ -34,6 +34,7 @@ PORTFOLIO_MAPPING = {
     "Vanguard FTSE All-World": "VWCE.DE",
     "MSCI ACWI EUR": "IUSQ.DE",
     "Nasdaq 100": "EQQQ.DE",
+    "Core Euro Gov Bond": "EUNH.DE", # NEU: Staatsanleihen
     "Allianz SE": "ALV.DE",
     "Münchener Rück": "MUV2.DE",
     "BMW": "BMW.DE",
@@ -85,24 +86,28 @@ def clean_html(raw_html: str) -> str:
     cleanr = re.compile('<.*?>')
     return re.sub(cleanr, '', raw_html).strip()
 
-def fetch_news_rss(url: str, limit: int = 50) -> List[Dict[str, Any]]:
+def fetch_news_rss(url: str, limit: int = 20) -> List[Dict[str, Any]]:
     print(f"📡 Lade RSS Feed: {url} ...")
-    feed = feedparser.parse(url)
-    collected = []
-    for entry in feed.entries[:limit]:
-        title = entry.get("title", "")
-        link = entry.get("link", "")
-        summary = clean_html(entry.get("summary") or entry.get("description") or "")
-        
-        published_dt = None
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
-        elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
-            published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), timezone.utc)
-        if not published_dt: published_dt = datetime.now(timezone.utc)
+    try:
+        feed = feedparser.parse(url)
+        collected = []
+        for entry in feed.entries[:limit]:
+            title = entry.get("title", "")
+            link = entry.get("link", "")
+            summary = clean_html(entry.get("summary") or entry.get("description") or "")
+            
+            published_dt = None
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
+                published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), timezone.utc)
+            elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), timezone.utc)
+            if not published_dt: published_dt = datetime.now(timezone.utc)
 
-        collected.append({"title": title, "url": link, "summary": summary, "time_published": published_dt})
-    return collected
+            collected.append({"title": title, "url": link, "summary": summary, "time_published": published_dt})
+        return collected
+    except Exception as e:
+        print(f"⚠️ Fehler beim Laden von {url}: {e}")
+        return []
 
 def is_recent(item: dict) -> bool:
     published = item.get("time_published")
@@ -138,15 +143,13 @@ def get_market_data() -> List[MarketData]:
             
             # 1. Intraday
             hist_intra = ticker.history(period="1d", interval="15m")
-            if hist_intra.empty: 
-                print(f"⚠️ Keine Daten für {name}")
-                continue
+            if hist_intra.empty: continue
 
             current = hist_intra['Close'].iloc[-1]
             open_price = hist_intra['Open'].iloc[0]
             change_pct = ((current - open_price) / open_price) * 100
             change_abs = current - open_price
-            currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol or ".V" in ticker_symbol else "$"
+            currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
             # 2. Indikatoren
@@ -164,21 +167,19 @@ def get_market_data() -> List[MarketData]:
                             sma200_dist = ((current - sma200) / sma200) * 100
             except: pass
 
-            # --- GRAPH (FIXED PADDING) ---
+            # Graph
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             y_vals = hist_intra['Close']
-            
-            # Limits berechnen
             y_min, y_max = y_vals.min(), y_vals.max()
             rng = y_max - y_min
             if rng == 0: rng = 1
             
-            # 20% Puffer oben und unten erzwingen
-            ax.set_ylim(y_min - rng*0.2, y_max + rng*0.2)
+            # 15% Puffer
+            ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
             ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
@@ -186,8 +187,7 @@ def get_market_data() -> List[MarketData]:
             plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            # pad_inches=0.1 sorgt für echten Rand im Bild
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.1)
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -226,9 +226,7 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketData] = None):
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
-    # ---------------------------------------------------------
-    # HTML TEMPLATE (CSS Update: object-fit: contain)
-    # ---------------------------------------------------------
+    # --- TEMPLATE ---
     HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -241,26 +239,16 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     <style>
         body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; }
-        
         header { border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; }
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.5px; }
         .timestamp { font-size: 0.9rem; color: #888; }
-        
         .toggle-btn { background: #333; border: 1px solid #555; color: #eee; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: background 0.2s; }
         .toggle-btn:hover { background: #444; }
-
-        /* Status */
         .status-card { background: #1e1e1e; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; margin-bottom: 20px; }
         .status-ok { color: #4caf50; font-size: 1.1rem; font-weight: bold; }
         .status-alert { color: #e57373; font-size: 1.1rem; font-weight: bold; }
-        
-        /* Grid Layout */
         .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; }
-        
-        /* Unified Card Style */
         .card-base { background: #1e1e1e; border: 1px solid #333; border-radius: 12px; padding: 15px; display: flex; flex-direction: column; transition: all 0.2s ease; position: relative; overflow: hidden; }
-        
-        /* Signal Card */
         .sig-card { cursor: pointer; min-height: 100px; max-height: 140px; }
         .sig-card:hover { border-color: #555; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
         .sig-card.card-new { border: 1px solid #2196f3; box-shadow: 0 0 8px rgba(33, 150, 243, 0.2); }
@@ -270,49 +258,31 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .sig-card.expanded .sig-body { -webkit-line-clamp: unset; overflow: visible; color: #fff; }
         .expand-hint { font-size: 0.7rem; color: #555; text-align: center; margin-top: auto; padding-top: 5px; }
         .sig-card.expanded .expand-hint { display: none; }
-
         .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
         .bg-red { background: rgba(211, 47, 47, 0.2); color: #ef9a9a; border: 1px solid #d32f2f; }
         .bg-green { background: rgba(56, 142, 60, 0.2); color: #a5d6a7; border: 1px solid #388e3c; }
         .tag-portfolio { background: linear-gradient(45deg, #6a1b9a, #4a148c); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
         .tag-new { background: linear-gradient(45deg, #0288d1, #01579b); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; }
-
-        /* Market Card */
         .market-card { height: 180px; justify-content: space-between; padding-bottom: 0; }
         .mc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; z-index: 2; padding-top:5px; }
         .mc-info { display: flex; flex-direction: column; width: 100%; }
         .mc-name { font-weight: bold; font-size: 0.9rem; margin-bottom: 2px; }
         .mc-price { font-family: monospace; font-size: 1rem; color: #fff; }
         .mc-change { font-size: 0.75rem; font-weight: bold; }
-        
         .indicator-row { display: flex; gap: 8px; margin-top: 5px; margin-bottom: 5px; font-size: 0.7rem; font-weight: bold; flex-wrap: wrap; }
         .ind-pill { padding: 2px 6px; border-radius: 4px; background: #333; color: #ccc; border: 1px solid #444; }
         .ind-warn { color: #ef9a9a; border-color: #d32f2f; }
         .ind-good { color: #a5d6a7; border-color: #388e3c; }
         .ind-mid  { color: #ffe082; border-color: #ffca28; }
-        
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
-        
-        /* GRAPH FIXED: CONTAIN statt COVER */
-        .graph-container { 
-            position: absolute; 
-            bottom: 5px; left: 5px; right: 5px; 
-            height: 60px; 
-            overflow: hidden; 
-            border-bottom-left-radius: 12px;
-            border-bottom-right-radius: 12px;
-            opacity: 0.9;
-        }
-        /* WICHTIG: contain zeigt das ganze Bild inkl. Ränder */
-        .graph-img { width: 100%; height: 100%; object-fit: contain; object-position: center bottom; } 
-
+        .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
+        .graph-img { width: 100%; height: 100%; object-fit: cover; } 
         .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
         .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
         .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
         .legend-item ul { list-style: none; padding: 0; margin: 0; }
         .legend-item li { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; line-height: 1.3; }
-
         h2 { border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 40px; color: #bbb; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;}
         footer { text-align: center; margin-top: 40px; font-size: 0.8rem; color: #555; padding-bottom: 20px;}
     </style>
@@ -336,9 +306,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 <div class="legend-item">
                     <h4>RSI (14)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkauf?)</li>
                         <li><span class="ind-pill ind-mid">⚖️ 30-70</span>: Neutral</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Billig" (Kaufchance)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Billig" (Kauf?)</li>
                     </ul>
                 </div>
                 <div class="legend-item">
@@ -370,9 +340,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 </body>
 </html>"""
 
-    # -- SECTIONS BAUEN --
-    
-    # STATUS
+    # -- SECTIONS --
     if not items:
         status_html = """
         <div class="status-card">
@@ -437,15 +405,11 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
-            # Indikator Logik
             ind_html = '<div class="indicator-row">'
             if m.rsi is not None:
-                if m.rsi > 70: 
-                    rsi_cls="ind-warn"; rsi_ico="🔥"
-                elif m.rsi < 30: 
-                    rsi_cls="ind-good"; rsi_ico="❄️"
-                else: 
-                    rsi_cls="ind-mid"; rsi_ico="⚖️"
+                if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
+                elif m.rsi < 30: rsi_cls="ind-good"; rsi_ico="❄️"
+                else: rsi_cls="ind-mid"; rsi_ico="⚖️"
                 ind_html += f'<span class="ind-pill {rsi_cls}">{rsi_ico} RSI {m.rsi:.0f}</span>'
             
             if m.sma200_dist_pct is not None:
@@ -478,7 +442,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         market_html += '</div>'
 
-    # EINFÜGEN
+    # FINALE
     final_html = HTML_TEMPLATE.replace("{{TIMESTAMP}}", now_str)
     final_html = final_html.replace("{{STATUS_SECTION}}", status_html)
     final_html = final_html.replace("{{SIGNALS_SECTION}}", signals_html)
@@ -491,18 +455,35 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 # ===== MAIN =====
 def main():
     if not CONFIG.get("sources"): return
-    src = CONFIG["sources"][0]
     
-    news = fetch_news_rss(src["url"], src.get("limit", 40))
-    news = [n for n in news if is_recent(n) and relevance_score(n) >= 1]
+    # 1. NEWS SAMMELN
+    all_news = []
+    # Deduplizierung per URL
+    seen_links = set()
+    
+    for src in CONFIG["sources"]:
+        news = fetch_news_rss(src["url"], src.get("limit", 15))
+        for n in news:
+            if n["url"] not in seen_links:
+                all_news.append(n)
+                seen_links.add(n["url"])
+    
+    # Sortieren nach Datum (Neueste zuerst)
+    all_news.sort(key=lambda x: x["time_published"], reverse=True)
+    
+    # Filtern (Aktuell & Relevant)
+    filtered_news = [n for n in all_news if is_recent(n) and relevance_score(n) >= 1]
+    
     last_ids = load_last_ids()
-    current_ids = {n["url"] for n in news}
+    current_ids = {n["url"] for n in filtered_news}
     new_ids = current_ids - last_ids
-    final_news = [n for n in news if n["url"] in new_ids]
+    # Nur echte neue News weiterleiten
+    final_news_for_ai = [n for n in filtered_news if n["url"] in new_ids]
 
     relevant_items = []
-    if final_news:
-        ai_result = analyze_with_gemini(final_news[:15])
+    if final_news_for_ai:
+        # Max 20 News an Gemini, damit Prompt nicht zu groß wird
+        ai_result = analyze_with_gemini(final_news_for_ai[:20])
         if ai_result.ideen:
             for idee in ai_result.ideen:
                 score = idee.vertrauen
