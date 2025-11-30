@@ -129,7 +129,7 @@ def calculate_rsi(series, period=14):
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (Embedded)...")
+    print("📈 Lade Marktdaten (Robust Mode)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -138,16 +138,18 @@ def get_market_data() -> List[MarketData]:
             
             # 1. Intraday
             hist_intra = ticker.history(period="1d", interval="15m")
-            if hist_intra.empty: continue
+            if hist_intra.empty: 
+                print(f"⚠️ Keine Daten für {name}")
+                continue
 
             current = hist_intra['Close'].iloc[-1]
             open_price = hist_intra['Open'].iloc[0]
             change_pct = ((current - open_price) / open_price) * 100
             change_abs = current - open_price
-            currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
+            currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol or ".V" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # 2. Langzeit
+            # 2. Indikatoren
             rsi_val = None
             sma200_dist = None
             try:
@@ -156,14 +158,13 @@ def get_market_data() -> List[MarketData]:
                     rsi_series = calculate_rsi(hist_long['Close'])
                     if rsi_series is not None and not pd.isna(rsi_series.iloc[-1]):
                         rsi_val = rsi_series.iloc[-1]
-
                     if len(hist_long) >= 200:
                         sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
                         if not pd.isna(sma200):
                             sma200_dist = ((current - sma200) / sma200) * 100
             except: pass
 
-            # Graph
+            # --- GRAPH (FIXED PADDING) ---
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
@@ -171,14 +172,22 @@ def get_market_data() -> List[MarketData]:
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             y_vals = hist_intra['Close']
             
-            # Auto-Scale mit Margin
+            # Limits berechnen
+            y_min, y_max = y_vals.min(), y_vals.max()
+            rng = y_max - y_min
+            if rng == 0: rng = 1
+            
+            # 20% Puffer oben und unten erzwingen
+            ax.set_ylim(y_min - rng*0.2, y_max + rng*0.2)
+            ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
+            
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
-            ax.margins(x=0, y=0.2)
             ax.axis('off')
             plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
+            # pad_inches=0.1 sorgt für echten Rand im Bild
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.1)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -218,7 +227,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
     # ---------------------------------------------------------
-    # HIER IST DAS KOMPLETTE HTML TEMPLATE DIREKT IM CODE
+    # HTML TEMPLATE (CSS Update: object-fit: contain)
     # ---------------------------------------------------------
     HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="de">
@@ -284,8 +293,19 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
-        .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
-        .graph-img { width: 100%; height: 100%; object-fit: cover; } 
+        
+        /* GRAPH FIXED: CONTAIN statt COVER */
+        .graph-container { 
+            position: absolute; 
+            bottom: 5px; left: 5px; right: 5px; 
+            height: 60px; 
+            overflow: hidden; 
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            opacity: 0.9;
+        }
+        /* WICHTIG: contain zeigt das ganze Bild inkl. Ränder */
+        .graph-img { width: 100%; height: 100%; object-fit: contain; object-position: center bottom; } 
 
         .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
         .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
@@ -316,9 +336,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 <div class="legend-item">
                     <h4>RSI (14)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Risiko)</li>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
                         <li><span class="ind-pill ind-mid">⚖️ 30-70</span>: Neutral</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Überverkauft" (Chance)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Billig" (Kaufchance)</li>
                     </ul>
                 </div>
                 <div class="legend-item">
@@ -417,11 +437,15 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
+            # Indikator Logik
             ind_html = '<div class="indicator-row">'
             if m.rsi is not None:
-                if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
-                elif m.rsi < 30: rsi_cls="ind-good"; rsi_ico="❄️"
-                else: rsi_cls="ind-mid"; rsi_ico="⚖️"
+                if m.rsi > 70: 
+                    rsi_cls="ind-warn"; rsi_ico="🔥"
+                elif m.rsi < 30: 
+                    rsi_cls="ind-good"; rsi_ico="❄️"
+                else: 
+                    rsi_cls="ind-mid"; rsi_ico="⚖️"
                 ind_html += f'<span class="ind-pill {rsi_cls}">{rsi_ico} RSI {m.rsi:.0f}</span>'
             
             if m.sma200_dist_pct is not None:
