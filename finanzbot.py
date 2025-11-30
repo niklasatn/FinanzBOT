@@ -21,14 +21,14 @@ KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
 
 STATE_FILE = "last_sent.json"
-OUTPUT_FILE = "index.html"  # WIEDER STANDARD
+OUTPUT_FILE = "index.html"
 MAX_NEWS_AGE_HOURS = 12
 
 # Filter
 MIN_CONF_PORTFOLIO = 60
 MIN_CONF_NEW_GEM = 95
 
-# ===== PORTFOLIO MAPPING =====
+# ===== PORTFOLIO MAPPING (FIXED TICKERS) =====
 PORTFOLIO_MAPPING = {
     "iShares MSCI World": "EUNL.DE",
     "Vanguard FTSE All-World": "VWCE.DE",
@@ -41,7 +41,7 @@ PORTFOLIO_MAPPING = {
     "Realty Income": "O",
     "Carnival": "CCL",
     "Snowflake": "SNOW",
-    "Highland Copper": "HIC.F",
+    "Highland Copper": "HIC.V",   # GEÄNDERT: .V (Kanada) statt .F (Frankfurt)
     "Bitcoin": "BTC-EUR"
 }
 
@@ -68,7 +68,6 @@ class MarketData(BaseModel):
     graph_base64: str
     rsi: Optional[float] = None
     sma200_dist_pct: Optional[float] = None
-    drawdown_pct: Optional[float] = None
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -128,9 +127,9 @@ def calculate_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# ===== FINANCE DATA =====
+# ===== FINANCE DATA (ROBUST GRAPH) =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (Robust Mode)...")
+    print("📈 Lade Marktdaten (Fixed)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -139,7 +138,10 @@ def get_market_data() -> List[MarketData]:
             
             # 1. Intraday
             hist_intra = ticker.history(period="1d", interval="15m")
-            if hist_intra.empty: continue
+            if hist_intra.empty: 
+                # Fallback: Versuch es mit dem letzten Schlusskurs, falls heute keine Daten da sind
+                print(f"⚠️ Keine Intraday-Daten für {name}, überspringe.")
+                continue
 
             current = hist_intra['Close'].iloc[-1]
             open_price = hist_intra['Open'].iloc[0]
@@ -148,49 +150,53 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # 2. Langzeit
+            # 2. Indikatoren
             rsi_val = None
             sma200_dist = None
-            
             try:
                 hist_long = ticker.history(period="1y")
                 if not hist_long.empty and len(hist_long) > 50:
                     rsi_series = calculate_rsi(hist_long['Close'])
                     if rsi_series is not None and not pd.isna(rsi_series.iloc[-1]):
                         rsi_val = rsi_series.iloc[-1]
-
                     if len(hist_long) >= 200:
                         sma200 = hist_long['Close'].rolling(window=200).mean().iloc[-1]
                         if not pd.isna(sma200):
                             sma200_dist = ((current - sma200) / sma200) * 100
             except: pass
 
-            # Graph
-            fig, ax = plt.subplots(figsize=(3, 1))
-            fig.patch.set_facecolor('#1e1e1e')
-            ax.set_facecolor('#1e1e1e')
+            # --- GRAPH (ROBUST) ---
+            # Nur zeichnen, wenn genug Daten da sind (>1 Punkt)
+            img_base64 = ""
             
-            line_color = '#4caf50' if change_pct >= 0 else '#e57373'
-            
-            y_vals = hist_intra['Close']
-            y_min, y_max = y_vals.min(), y_vals.max()
-            rng = y_max - y_min
-            if rng == 0: rng = 1
-            
-            # Puffer (damit nichts abgeschnitten wird)
-            ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
-            ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
-            
-            ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
-            ax.axis('off')
-            plt.tight_layout(pad=0)
-            
-            buf = io.BytesIO()
-            # bbox_inches='tight' + padding ist der sicherste Weg gegen Abschneiden
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
-            plt.close(fig)
-            buf.seek(0)
-            img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            if len(hist_intra) > 1:
+                fig, ax = plt.subplots(figsize=(3, 1))
+                fig.patch.set_facecolor('#1e1e1e')
+                ax.set_facecolor('#1e1e1e')
+                
+                line_color = '#4caf50' if change_pct >= 0 else '#e57373'
+                y_vals = hist_intra['Close']
+                y_min, y_max = y_vals.min(), y_vals.max()
+                rng = y_max - y_min
+                if rng == 0: rng = 1
+                
+                # Limits mit 15% Puffer
+                ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
+                ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
+                
+                ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
+                ax.axis('off')
+                plt.tight_layout(pad=0)
+                
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
+                plt.close(fig)
+                buf.seek(0)
+                img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            else:
+                # Fallback: Leeres Bild oder Platzhalter, wenn nur 1 Punkt existiert
+                print(f"ℹ️ Zu wenig Datenpunkte für Graph bei {name} (Länge: {len(hist_intra)})")
+                # Wir lassen img_base64 leer oder könnten ein 1x1 transparentes Pixel senden
             
             data_list.append(MarketData(
                 name=name, price_fmt=price_fmt, change_pct=change_pct, change_abs=change_abs,
@@ -299,6 +305,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
+            # Indikatoren
             ind_html = '<div class="indicator-row">'
             if m.rsi is not None:
                 if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
@@ -315,6 +322,13 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             pct_str = f"{prefix}{m.change_pct:.2f}%"
             abs_str = f"{prefix}{m.change_abs:.2f} {m.currency_symbol}"
             
+            # Graph nur anzeigen, wenn Base64-String existiert
+            graph_html = ""
+            if m.graph_base64:
+                graph_html = f'<div class="graph-container"><img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart"></div>'
+            else:
+                graph_html = '<div style="height:60px; display:flex; align-items:center; justify-content:center; color:#444; font-size:0.8rem;">Kein Graph verfügbar</div>'
+
             market_html += f"""
             <div class="card-base market-card">
                 <div class="mc-top">
@@ -329,9 +343,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                         {ind_html}
                     </div>
                 </div>
-                <div class="graph-container">
-                    <img src="data:image/png;base64,{m.graph_base64}" class="graph-img" alt="Chart">
-                </div>
+                {graph_html}
             </div>
             """
         market_html += '</div>'
@@ -342,7 +354,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     final_html = final_html.replace("{{SIGNALS_SECTION}}", signals_html)
     final_html = final_html.replace("{{MARKET_SECTION}}", market_html)
 
-    # WICHTIG: Wieder als index.html speichern!
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(final_html)
     print(f"✅ Dashboard ({OUTPUT_FILE}) aus Template erstellt.")
