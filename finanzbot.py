@@ -34,7 +34,7 @@ PORTFOLIO_MAPPING = {
     "Vanguard FTSE All-World": "VWCE.DE",
     "MSCI ACWI EUR": "IUSQ.DE",
     "Nasdaq 100": "EQQQ.DE",
-    "Core Euro Gov Bond": "EUNH.DE", # NEU: Staatsanleihen
+    "Core Euro Gov Bond": "EUNH.DE",
     "Allianz SE": "ALV.DE",
     "Münchener Rück": "MUV2.DE",
     "BMW": "BMW.DE",
@@ -134,7 +134,7 @@ def calculate_rsi(series, period=14):
 
 # ===== FINANCE DATA =====
 def get_market_data() -> List[MarketData]:
-    print("📈 Lade Marktdaten (Robust Mode)...")
+    print("📈 Lade Marktdaten (Graph Fix V3)...")
     data_list = []
 
     for name, ticker_symbol in PORTFOLIO_MAPPING.items():
@@ -167,27 +167,34 @@ def get_market_data() -> List[MarketData]:
                             sma200_dist = ((current - sma200) / sma200) * 100
             except: pass
 
-            # Graph
+            # --- GRAPH FIX ---
             fig, ax = plt.subplots(figsize=(3, 1))
             fig.patch.set_facecolor('#1e1e1e')
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
             y_vals = hist_intra['Close']
-            y_min, y_max = y_vals.min(), y_vals.max()
-            rng = y_max - y_min
-            if rng == 0: rng = 1
             
-            # 15% Puffer
-            ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
+            # 1. Plotten
+            ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2.5) # Linie dicker
+            
+            # 2. Limits MANUELL setzen mit 20% Puffer oben/unten
+            y_min = y_vals.min()
+            y_max = y_vals.max()
+            rng = y_max - y_min
+            if rng == 0: rng = y_max * 0.01 if y_max != 0 else 1.0 # Schutz vor Flatline
+            
+            # Puffer addieren
+            buffer = rng * 0.3 # 30% Puffer!
+            ax.set_ylim(y_min - buffer, y_max + buffer)
             ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
             
-            ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
+            # 3. Alles ausblenden
             ax.axis('off')
-            plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
-            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
+            # 4. Speichern mit Pad Inches (der "unsichtbare Rand")
+            plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.1)
             plt.close(fig)
             buf.seek(0)
             img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
@@ -226,7 +233,9 @@ def analyze_with_gemini(news_items: List[dict]) -> IdeaOutput:
 def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketData] = None):
     now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime('%d.%m.%Y %H:%M')
     
-    # --- TEMPLATE ---
+    # ---------------------------------------------------------
+    # HTML TEMPLATE
+    # ---------------------------------------------------------
     HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -277,7 +286,8 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         .col-green { color: #4caf50; }
         .col-red { color: #e57373; }
         .graph-container { position: absolute; bottom: 0; left: 0; right: 0; height: 60px; overflow: hidden; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; opacity: 0.8; }
-        .graph-img { width: 100%; height: 100%; object-fit: cover; } 
+        /* Contain sorgt dafür dass das komplette Bild inkl. Padding sichtbar ist */
+        .graph-img { width: 100%; height: 100%; object-fit: contain; object-position: center bottom; } 
         .legend-box { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; color: #888; font-size: 0.85rem; }
         .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 10px; }
         .legend-item h4 { color: #ccc; margin: 0 0 8px 0; font-size: 0.9rem; border-bottom: 1px solid #444; display: inline-block; padding-bottom: 2px; }
@@ -306,9 +316,9 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
                 <div class="legend-item">
                     <h4>RSI (14)</h4>
                     <ul>
-                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkauf?)</li>
+                        <li><span class="ind-pill ind-warn">🔥 > 70</span>: Markt "heiß" (Verkaufsrisiko)</li>
                         <li><span class="ind-pill ind-mid">⚖️ 30-70</span>: Neutral</li>
-                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Billig" (Kauf?)</li>
+                        <li><span class="ind-pill ind-good">❄️ < 30</span>: "Billig" (Kaufchance)</li>
                     </ul>
                 </div>
                 <div class="legend-item">
@@ -357,7 +367,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
         </div>
         """
 
-    # SIGNALS
     if items:
         signals_html = '<h2>⚡ Handlungsbedarf (KI)</h2><div class="grid-container">'
         for i in items:
@@ -391,7 +400,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     else:
         signals_html = ""
 
-    # MARKET
     market_html = ""
     if market_data:
         market_html = """
@@ -442,7 +450,6 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             """
         market_html += '</div>'
 
-    # FINALE
     final_html = HTML_TEMPLATE.replace("{{TIMESTAMP}}", now_str)
     final_html = final_html.replace("{{STATUS_SECTION}}", status_html)
     final_html = final_html.replace("{{SIGNALS_SECTION}}", signals_html)
@@ -456,33 +463,27 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
 def main():
     if not CONFIG.get("sources"): return
     
-    # 1. NEWS SAMMELN
+    # News sammeln
     all_news = []
-    # Deduplizierung per URL
     seen_links = set()
-    
     for src in CONFIG["sources"]:
         news = fetch_news_rss(src["url"], src.get("limit", 15))
         for n in news:
             if n["url"] not in seen_links:
                 all_news.append(n)
                 seen_links.add(n["url"])
-    
-    # Sortieren nach Datum (Neueste zuerst)
     all_news.sort(key=lambda x: x["time_published"], reverse=True)
     
-    # Filtern (Aktuell & Relevant)
+    # Filtern
     filtered_news = [n for n in all_news if is_recent(n) and relevance_score(n) >= 1]
     
     last_ids = load_last_ids()
     current_ids = {n["url"] for n in filtered_news}
     new_ids = current_ids - last_ids
-    # Nur echte neue News weiterleiten
     final_news_for_ai = [n for n in filtered_news if n["url"] in new_ids]
 
     relevant_items = []
     if final_news_for_ai:
-        # Max 20 News an Gemini, damit Prompt nicht zu groß wird
         ai_result = analyze_with_gemini(final_news_for_ai[:20])
         if ai_result.ideen:
             for idee in ai_result.ideen:
