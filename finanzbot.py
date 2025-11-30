@@ -21,7 +21,7 @@ KEYWORDS = [k.lower() for k in CONFIG["keywords"]]
 PROMPTS = CONFIG["prompts"]
 
 STATE_FILE = "last_sent.json"
-OUTPUT_FILE = "dashboard_finanzbot.html"
+OUTPUT_FILE = "index.html"  # WIEDER STANDARD
 MAX_NEWS_AGE_HOURS = 12
 
 # Filter
@@ -68,6 +68,7 @@ class MarketData(BaseModel):
     graph_base64: str
     rsi: Optional[float] = None
     sma200_dist_pct: Optional[float] = None
+    drawdown_pct: Optional[float] = None
 
 # ===== STATE MANAGEMENT =====
 def load_last_ids():
@@ -147,9 +148,10 @@ def get_market_data() -> List[MarketData]:
             currency = "€" if "EUR" in ticker_symbol or ".DE" in ticker_symbol or ".F" in ticker_symbol else "$"
             price_fmt = f"{current:.2f} {currency}"
 
-            # 2. Langzeit (Indikatoren)
+            # 2. Langzeit
             rsi_val = None
             sma200_dist = None
+            
             try:
                 hist_long = ticker.history(period="1y")
                 if not hist_long.empty and len(hist_long) > 50:
@@ -169,19 +171,22 @@ def get_market_data() -> List[MarketData]:
             ax.set_facecolor('#1e1e1e')
             
             line_color = '#4caf50' if change_pct >= 0 else '#e57373'
+            
             y_vals = hist_intra['Close']
             y_min, y_max = y_vals.min(), y_vals.max()
             rng = y_max - y_min
             if rng == 0: rng = 1
             
-            # 15% Puffer
+            # Puffer (damit nichts abgeschnitten wird)
             ax.set_ylim(y_min - rng*0.15, y_max + rng*0.15)
             ax.set_xlim(hist_intra.index[0], hist_intra.index[-1])
+            
             ax.plot(hist_intra.index, y_vals, color=line_color, linewidth=2)
             ax.axis('off')
             plt.tight_layout(pad=0)
             
             buf = io.BytesIO()
+            # bbox_inches='tight' + padding ist der sicherste Weg gegen Abschneiden
             plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), bbox_inches='tight', pad_inches=0.05)
             plt.close(fig)
             buf.seek(0)
@@ -191,6 +196,7 @@ def get_market_data() -> List[MarketData]:
                 name=name, price_fmt=price_fmt, change_pct=change_pct, change_abs=change_abs,
                 currency_symbol=currency, graph_base64=img_base64, rsi=rsi_val, sma200_dist_pct=sma200_dist
             ))
+
         except Exception as e:
             print(f"⚠️ Fehler bei {name}: {e}")
             continue
@@ -253,8 +259,13 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             sig_upper = i.signal.upper()
             badge_class = "bg-red" if "VERKAUF" in sig_upper else "bg-green"
             icon = "📉" if "VERKAUF" in sig_upper else "💰"
-            tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>' if i.betrifft_portfolio else '<span class="tag-new">💎 NEU ENTDECKT</span>'
-            extra_class = "card-new" if not i.betrifft_portfolio else ""
+            
+            if i.betrifft_portfolio:
+                tag_html = '<span class="tag-portfolio">MEIN PORTFOLIO</span>'
+                extra_class = ""
+            else:
+                tag_html = '<span class="tag-new">💎 NEU ENTDECKT</span>'
+                extra_class = "card-new"
 
             signals_html += f"""
             <div class="card-base sig-card {extra_class}" onclick="toggleCard(this)">
@@ -288,15 +299,11 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
             color_class = "col-green" if m.change_pct >= 0 else "col-red"
             prefix = "+" if m.change_pct >= 0 else ""
             
-            # Indikator Logik (Gelb zwischen 30 und 70)
             ind_html = '<div class="indicator-row">'
             if m.rsi is not None:
-                if m.rsi > 70: 
-                    rsi_cls="ind-warn"; rsi_ico="🔥"
-                elif m.rsi < 30: 
-                    rsi_cls="ind-good"; rsi_ico="❄️"
-                else: 
-                    rsi_cls="ind-mid"; rsi_ico="⚖️"
+                if m.rsi > 70: rsi_cls="ind-warn"; rsi_ico="🔥"
+                elif m.rsi < 30: rsi_cls="ind-good"; rsi_ico="❄️"
+                else: rsi_cls="ind-mid"; rsi_ico="⚖️"
                 ind_html += f'<span class="ind-pill {rsi_cls}">{rsi_ico} RSI {m.rsi:.0f}</span>'
             
             if m.sma200_dist_pct is not None:
@@ -335,6 +342,7 @@ def generate_dashboard(items: List[IdeaItem] = None, market_data: List[MarketDat
     final_html = final_html.replace("{{SIGNALS_SECTION}}", signals_html)
     final_html = final_html.replace("{{MARKET_SECTION}}", market_html)
 
+    # WICHTIG: Wieder als index.html speichern!
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(final_html)
     print(f"✅ Dashboard ({OUTPUT_FILE}) aus Template erstellt.")
