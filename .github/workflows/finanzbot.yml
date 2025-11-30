@@ -35,7 +35,12 @@ jobs:
           git config --global user.name "FinanzBot"
           git config --global user.email "bot@action.github"
           
-          # HIER DER NEUE NAME:
-          git add dashboard_finanzbot.html last_sent.json
+          # HIER WIEDER NUR INDEX.HTML
+          git add index.html last_sent.json
+          
+          # Falls dashboard_finanzbot.html noch da ist, entfernen wir sie, damit es sauber bleibt
+          if [ -f dashboard_finanzbot.html ]; then
+            git rm dashboard_finanzbot.html
+          fi
           
           git diff-index --quiet HEAD || (git commit -m "📊 Dashboard Update" && git push)
