@@ -1,10 +1,40 @@
 {
   "sources": [
     {
-      "name": "Finanzen.net Hauptfeed",
+      "name": "Finanzen.net",
       "type": "rss",
       "url": "https://www.finanzen.net/rss/news",
-      "limit": 30
+      "limit": 15
+    },
+    {
+      "name": "Börse Frankfurt",
+      "type": "rss",
+      "url": "https://api.boerse-frankfurt.de/v1/feeds/news.rss",
+      "limit": 10
+    },
+    {
+      "name": "Wallstreet Online Ad-Hoc",
+      "type": "rss",
+      "url": "https://www.wallstreet-online.de/rss/ad-hoc",
+      "limit": 10
+    },
+    {
+      "name": "WirtschaftsWoche",
+      "type": "rss",
+      "url": "https://www.wiwo.de/content/rss/feeds/schlagzeilen/wirtschaft.xml",
+      "limit": 10
+    },
+    {
+      "name": "Deutschlandfunk Wirtschaft",
+      "type": "rss",
+      "url": "https://www.deutschlandfunk.de/wirtschaft-106.rss",
+      "limit": 10
+    },
+    {
+      "name": "Capital",
+      "type": "rss",
+      "url": "https://www.capital.de/feed.rss",
+      "limit": 10
     }
   ],
   "keywords": [
@@ -24,11 +54,13 @@
     "Künstliche Intelligenz",
     "Tech",
     "Bitcoin",
-    "Krypto"
+    "Krypto",
+    "Anleihe",
+    "Bond",
+    "Staatsanleihe"
   ],
   "prompts": {
-    "main": "Du bist ein strenger Vermögensverwalter. Hier ist das Portfolio: '{portfolio}'.\n\nWICHTIG: Das Portfolio gehört mehreren Personen. Ignoriere daher jegliche Kritik an Redundanzen oder Klumpenrisiken (z.B. MSCI World vs. All-World).\n\nDeine Aufgabe:\n1. Analysiere die News auf GEFAHREN für das Portfolio (z.B. schlechte Zahlen, Klagen, Analysten-Downgrades) -> Signal: VERKAUF PRÜFEN.\n2. Analysiere die News auf CHANCEN für das Portfolio (z.B. Rekordgewinne, Analysten-Upgrades) -> Signal: NACHKAUFEN.\n3. Suche erst danach nach neuen Ideen außerhalb des Portfolios.\n\nNews:",
+    "main": "Du bist ein strenger Vermögensverwalter. Hier ist das Portfolio: '{portfolio}'.\n\nWICHTIG: Das Portfolio gehört mehreren Personen. Ignoriere daher jegliche Kritik an Redundanzen oder Klumpenrisiken (z.B. MSCI World vs. All-World).\n\nDeine Aufgabe:\n1. Analysiere die News auf GEFAHREN für das Portfolio (z.B. schlechte Zahlen, Klagen, Analysten-Downgrades, Zinsanhebungen für Bonds) -> Signal: VERKAUF PRÜFEN.\n2. Analysiere die News auf CHANCEN für das Portfolio (z.B. Rekordgewinne, Analysten-Upgrades, Zinssenkungen) -> Signal: NACHKAUFEN.\n3. Suche erst danach nach neuen Ideen außerhalb des Portfolios.\n\nNews:",
     "format": "Antworte nur im JSON-Format mit einer Liste 'ideen'. Felder:\n- name (Asset Name)\n- typ (Aktie/ETF/Krypto)\n- signal (Wähle exakt eins: 'KAUFCHANCE', 'VERKAUF PRÜFEN', 'NEUTRAL', 'BEOBACHTEN')\n- begruendung (Kurze, harte Faktenlage. Warum droht Gefahr oder winkt Gewinn?)\n- vertrauen (0-100)\n- betrifft_portfolio (boolean: true/false)\n\nMaximal 5 Einträge. Wichtigstes zuerst!"
-  },
-  "portfolio_env": "USER_PORTFOLIO"
+  }
 }
