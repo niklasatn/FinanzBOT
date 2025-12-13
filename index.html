@@ -63,68 +63,17 @@
     <div class="container">
         <header>
             <h1>FinanzBot <span style="color:#666">Dashboard</span></h1>
-            <div class="timestamp">Stand: 13.12.2025 12:18</div>
+            <div class="timestamp">Stand: 13.12.2025 12:38</div>
         </header>
 
         
-        <div class="status-card" style="border-color: #d32f2f;">
-            <div class="status-alert">🚨 4 Signale erkannt</div>
+        <div class="status-card">
+            <div class="status-ok">✅ Alles ruhig</div>
+            <p style="color:#888; font-size: 0.9rem; margin-top:5px;">Kein akuter Handlungsbedarf (Kauf/Verkauf).</p>
         </div>
         
 
-        <h2>⚡ Handlungsbedarf (KI)</h2><div class="grid-container">
-            <div class="card-base sig-card " onclick="toggleCard(this)">
-                <div class="sig-header">
-                    <span style="color:#fff">Core Euro Gov Bond</span>
-                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
-                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 90%</div>
-                </div>
-                <div class="sig-body">Der bevorstehende Zinsentscheid birgt ein hohes Risiko. Eine mögliche Anhebung der Zinsen oder deren Verbleib auf hohem Niveau würde zu direkten Kursverlusten bei Anleihen führen.</div>
-                <div class="expand-hint">▼ klick</div>
-            </div>
-            
-            <div class="card-base sig-card " onclick="toggleCard(this)">
-                <div class="sig-header">
-                    <span style="color:#fff">Realty Income</span>
-                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
-                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 85%</div>
-                </div>
-                <div class="sig-body">REITs sind stark zinsabhängig. Bei anhaltend hohen Zinsen oder weiteren Erhöhungen steigen die Refinanzierungskosten und die Attraktivität der Dividenden kann gegenüber festverzinslichen Alternativen sinken.</div>
-                <div class="expand-hint">▼ klick</div>
-            </div>
-            
-            <div class="card-base sig-card " onclick="toggleCard(this)">
-                <div class="sig-header">
-                    <span style="color:#fff">Nasdaq 100</span>
-                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
-                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 80%</div>
-                </div>
-                <div class="sig-body">Wachstumsaktien sind besonders sensibel gegenüber Zinsänderungen. Ein restriktiver Zinsentscheid oder verzögerte Zinssenkungen erhöhen die Kapitalkosten und mindern die Bewertung zukünftiger Cashflows.</div>
-                <div class="expand-hint">▼ klick</div>
-            </div>
-            
-            <div class="card-base sig-card " onclick="toggleCard(this)">
-                <div class="sig-header">
-                    <span style="color:#fff">Carnival</span>
-                    <span class="badge bg-red">📉 VERKAUF PRÜFEN</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="tag-portfolio">MEIN PORTFOLIO</span>
-                    <div style="font-size:0.75rem; color:#666;">Konfidenz: 75%</div>
-                </div>
-                <div class="sig-body">Als hoch verschuldeter zyklischer Konsumwert ist Carnival doppelt betroffen: Höhere Zinsen belasten die Schuldendienstkosten, und eine restriktive Geldpolitik kann die Konsumausgaben der Zielgruppe reduzieren.</div>
-                <div class="expand-hint">▼ klick</div>
-            </div>
-            </div>
+        
     
         
         <h2>
@@ -353,17 +302,17 @@
                 <div class="mc-top">
                     <div class="mc-info">
                         <span class="mc-name">Bitcoin</span>
-                        <span class="mc-price">77159.78 €</span>
+                        <span class="mc-price">77055.06 €</span>
                         <span class="mc-change col-green dynamic-change" 
-                              data-pct="+0.37%" 
-                              data-abs="+283.78 €">
-                            +0.37%
+                              data-pct="+0.23%" 
+                              data-abs="+179.06 €">
+                            +0.23%
                         </span>
                         <div class="indicator-row"><span class="ind-pill ind-mid">⚖️ RSI 47</span><span class="ind-pill ind-warn">📉 Trend</span></div>
                     </div>
                 </div>
                 <div class="graph-container">
-                    <img src="data:image/png;base64,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" class="graph-img" alt="Chart">
+                    <img src="data:image/png;base64,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" class="graph-img" alt="Chart">
                 </div>
             </div>
             </div>
